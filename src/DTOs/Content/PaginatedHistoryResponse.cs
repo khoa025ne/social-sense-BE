@@ -1,0 +1,14 @@
+using System.Collections.Generic;
+
+namespace SocialSense.DTOs.Content;
+
+public class PaginatedHistoryResponse
+{
+    public int TotalCount { get; set; }
+
+    public int Page { get; set; }
+
+    public int PageSize { get; set; }
+
+    public List<HistoryItemResponse> Items { get; set; } = new();
+}

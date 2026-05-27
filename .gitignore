@@ -1,0 +1,23 @@
+# Build outputs
+src/bin/
+src/obj/
+tests/**/bin/
+tests/**/obj/
+*.user
+
+# VS / Rider
+.vs/
+.idea/
+*.suo
+*.sln.docstates
+
+# Secrets & local config
+src/appsettings.json
+src/appsettings.Development.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

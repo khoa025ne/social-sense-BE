@@ -1,0 +1,222 @@
+{
+  "1_Authentication": {
+    "Register": {
+      "Method": "POST",
+      "Url": "http://localhost:5280/auth/register",
+      "Headers": {
+        "Content-Type": "application/json"
+      },
+      "Body": {
+        "email": "pha@example.com",
+        "password": "pha@example.com",
+        "displayName": "Pha Developer"
+      },
+      "Description": "Đăng ký tài khoản kiểm thử của bạn."
+    },
+    "Login": {
+      "Method": "POST",
+      "Url": "http://localhost:5280/auth/login",
+      "Headers": {
+        "Content-Type": "application/json"
+      },
+      "Body": {
+        "email": "pha@example.com",
+        "password": "pha@example.com"
+      },
+      "Description": "Đăng nhập để nhận accessToken (JWT). Hãy copy token này paste vào mục Authorize (ở góc phải Swagger) dưới dạng Bearer <Token>."
+    },
+    "RefreshToken": {
+      "Method": "POST",
+      "Url": "http://localhost:5280/auth/refresh",
+      "Headers": {
+        "Content-Type": "application/json"
+      },
+      "Body": {
+        "refreshToken": "PASTE_REFRESH_TOKEN_FROM_LOGIN_RESPONSE"
+      },
+      "Description": "Sử dụng Refresh Token để lấy Access Token mới khi JWT hết hạn."
+    }
+  },
+  "2_Brand_Persona_And_Context": {
+    "SubmitOnboarding": {
+      "Method": "POST",
+      "Url": "http://localhost:5280/context/onboarding",
+      "Headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer PASTE_ACCESS_TOKEN_HERE"
+      },
+      "Body": {
+        "userId": "a6c841b6-f731-4dbd-ad60-915ca29fec5f",
+        "answers": [
+          "Tôi kinh doanh thời trang nam cao cấp, chuyên cung cấp các mẫu vest công sở, quần tây và áo sơ mi phom dáng lịch lãm.",
+          "Khách hàng của tôi là nam giới công sở, doanh nhân trẻ từ 25 đến 45 tuổi, những người cần vẻ ngoài chuyên nghiệp, chỉn chu và nam tính.",
+          "Tôi muốn truyền tải thông điệp về sự tự tin, phong thái lịch lãm của người đàn ông thành đạt, nhấn mạnh vào chất liệu bền bỉ và phom dáng tinh tế tôn dáng."
+        ],
+        "language": "vi"
+      },
+      "Description": "Thiết lập hoặc tạo mới chân dung thương hiệu (Brand Persona) từ khảo sát 3 câu hỏi bằng tiếng Việt."
+    },
+    "GetPersona": {
+      "Method": "GET",
+      "Url": "http://localhost:5280/context/persona?userId=a6c841b6-f731-4dbd-ad60-915ca29fec5f",
+      "Headers": {
+        "Authorization": "Bearer PASTE_ACCESS_TOKEN_HERE"
+      },
+      "Body": null,
+      "Description": "Lấy thông tin chân dung thương hiệu hiện tại trong MySQL."
+    },
+    "UpdatePersona": {
+      "Method": "PUT",
+      "Url": "http://localhost:5280/context/persona?userId=a6c841b6-f731-4dbd-ad60-915ca29fec5f",
+      "Headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer PASTE_ACCESS_TOKEN_HERE"
+      },
+      "Body": {
+        "jobTitle": "Thương hiệu Thời trang Nam Lịch lãm - Pha Gent",
+        "toneOfVoice": "Trưởng thành, Lịch thiệp, Tự tin và Đáng tin cậy",
+        "platformPreferences": ["Facebook", "LinkedIn"],
+        "targetAudience": ["Nam giới công sở", "Doanh nhân trẻ", "Quý ông lịch lãm"],
+        "contentFormats": ["Bài đăng chia sẻ mẹo phối đồ", "Bài đăng giới thiệu sản phẩm mới", "Câu chuyện thương hiệu"],
+        "negativeConstraints": ["Hình ảnh mặc đồ hở hang như nữ", "Giọng điệu cợt nhả hoặc quá trẻ con", "Quảng cáo giật gân, rẻ tiền"],
+        "language": "vi"
+      },
+      "Description": "Cập nhật trực tiếp chân dung thương hiệu chi tiết với các quy định khắt khe về ngữ cảnh và từ chối lọc trend lệch lạc."
+    }
+  },
+  "3_Knowledge_Ingestion": {
+    "IngestManual": {
+      "Method": "POST",
+      "Url": "http://localhost:5280/knowledge/manual",
+      "Headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer PASTE_ACCESS_TOKEN_HERE"
+      },
+      "Body": {
+        "title": "Tài liệu Phom dáng Quần tây Nam Cao cấp 2026",
+        "rawContent": "Các sản phẩm quần tây nam của Pha Gent sử dụng chất liệu vải Cotton Spandex co giãn nhẹ, giữ phom tốt và chống nhăn tuyệt đối sau khi giặt. Thiết kế cạp quần thông minh có thể nới lỏng thêm 2-3 cm tạo sự thoải mái tối đa cho quý ông công sở phải ngồi làm việc cả ngày. Đây là dòng sản phẩm tập trung vào độ bền bỉ dài lâu, phom dáng đứng chuẩn nam tính và mức giá cực kỳ tối ưu, mang lại sự đầu tư xứng đáng cho bản thân quý ông."
+      },
+      "Description": "Nạp tài liệu tri thức thủ công vào MySQL để làm dữ liệu nền tảng cho RAG AI đọc."
+    },
+    "IngestScrape": {
+      "Method": "POST",
+      "Url": "http://localhost:5280/knowledge/scrape",
+      "Headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer PASTE_ACCESS_TOKEN_HERE"
+      },
+      "Body": {
+        "targetUrl": "https://trends.google.com/trends/trendingsearches/daily"
+      },
+      "Description": "Thu thập tự động nội dung văn bản từ một trang web (trong danh sách domain được cho phép) để lưu trữ thành tri thức."
+    },
+    "IngestFile": {
+      "Method": "POST",
+      "Url": "http://localhost:5280/knowledge/upload-file",
+      "Headers": {
+        "Content-Type": "multipart/form-data",
+        "Authorization": "Bearer PASTE_ACCESS_TOKEN_HERE"
+      },
+      "Body": null,
+      "Description": "Upload file tài liệu sản phẩm (.txt, .md, .docx, .pdf) tối đa 10MB dưới dạng form-data với key là 'file'."
+    }
+  },
+  "4_Trends_And_Tags": {
+    "GetTrends": {
+      "Method": "GET",
+      "Url": "http://localhost:5280/trends?page=1&pageSize=10",
+      "Headers": {
+        "Authorization": "Bearer PASTE_ACCESS_TOKEN_HERE"
+      },
+      "Body": null,
+      "Description": "Lấy danh sách các Trends (Xu hướng) mới nhất đang lưu trữ trong MySQL."
+    },
+    "GetTags": {
+      "Method": "GET",
+      "Url": "http://localhost:5280/trends/tags",
+      "Headers": {
+        "Authorization": "Bearer PASTE_ACCESS_TOKEN_HERE"
+      },
+      "Body": null,
+      "Description": "Lấy danh sách thẻ tag của các trend hiện tại."
+    }
+  },
+  "5_Tag_Taxonomy": {
+    "GetTaxonomyTags": {
+      "Method": "GET",
+      "Url": "http://localhost:5280/taxonomy/tags",
+      "Headers": {
+        "Authorization": "Bearer PASTE_ACCESS_TOKEN_HERE"
+      },
+      "Body": null,
+      "Description": "Lấy danh sách các thẻ tags hợp lệ của hệ thống phân loại xu hướng."
+    },
+    "UpdateTaxonomyTags": {
+      "Method": "PUT",
+      "Url": "http://localhost:5280/taxonomy/tags",
+      "Headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer PASTE_ACCESS_TOKEN_HERE"
+      },
+      "Body": {
+        "allowedTags": ["thoitrangnam", "thoitrangcongso", "quanao", "vest", "quantay", "fashion"]
+      },
+      "Description": "Cập nhật danh sách thẻ tags phân loại hợp lệ của hệ thống."
+    }
+  },
+  "6_Content_Generation_And_Psychology_Coach": {
+    "GenerateContent": {
+      "Method": "POST",
+      "Url": "http://localhost:5280/content/generate",
+      "Headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer PASTE_ACCESS_TOKEN_HERE"
+      },
+      "Body": {
+        "userId": "a6c841b6-f731-4dbd-ad60-915ca29fec5f",
+        "trendId": null,
+        "outputCount": 2,
+        "language": "vi",
+        "targetPlatforms": ["Facebook", "LinkedIn"],
+        "generateImage": false
+      },
+      "Description": "Sinh nội dung tự động dựa trên Persona của bạn cùng với các tri thức có liên quan trong MySQL và gợi ý đòn tâm lý. trendId=null kích hoạt chế độ tự động lọc so khớp xu hướng thông minh."
+    },
+    "CheckBrandAlignment": {
+      "Method": "POST",
+      "Url": "http://localhost:5280/content/check-alignment",
+      "Headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer PASTE_ACCESS_TOKEN_HERE"
+      },
+      "Body": {
+        "userId": "a6c841b6-f731-4dbd-ad60-915ca29fec5f",
+        "draftContent": "Đầu tháng này bên mình có nhập về mấy mẫu quần tây nam mới cực đẹp cho các anh mặc đi làm. Chất vải mát, bền đẹp và giá rất tốt. Các anh ủng hộ em nha, inbox để em tư vấn size ạ."
+      },
+      "Description": "Trợ lý Chấm điểm & Thâu tóm tâm lý bài nháp: Phân tích bài viết nháp của bạn xem có lệch pha thương hiệu không, chỉ ra điểm yếu tâm lý, và tự động viết lại bài đăng theo đúng các đòn tâm lý cực cuốn."
+    },
+    "GetHistory": {
+      "Method": "GET",
+      "Url": "http://localhost:5280/content/history?userId=a6c841b6-f731-4dbd-ad60-915ca29fec5f&page=1&pageSize=10",
+      "Headers": {
+        "Authorization": "Bearer PASTE_ACCESS_TOKEN_HERE"
+      },
+      "Body": null,
+      "Description": "Lịch sử các bài viết đã được AI sinh ra để dễ dàng quản lý."
+    },
+    "EditHistory": {
+      "Method": "PUT",
+      "Url": "http://localhost:5280/content/history/PASTE_HISTORY_ID_HERE/edit",
+      "Headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer PASTE_ACCESS_TOKEN_HERE"
+      },
+      "Body": {
+        "title": "Tiêu đề mới tinh chỉnh",
+        "body": "Đầu tháng rồi mấy anh ơi! Muốn may mắn giữ được tiền thì mình phải biết đầu tư vào bản thân trước nhé. Ghé ngay Pha Gent xem 3 mẫu quần tây nam cạp thông minh siêu tôn dáng, bao giặt chống nhăn tuyệt đối. Inbox em nhận tư vấn size chuẩn ngay!",
+        "hashtags": ["thoitrangnam", "quantaynam", "phagent"]
+      },
+      "Description": "Chỉnh sửa bài viết đã lưu trong lịch sử sinh để cập nhật lưu trữ chính xác."
+    }
+  }
+}

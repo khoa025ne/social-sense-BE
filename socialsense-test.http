@@ -1,0 +1,128 @@
+@Host = http://localhost:5280
+@UserId = a6c841b6-f731-4dbd-ad60-915ca29fec5f
+
+# ==========================================
+# 1. HỆ THỐNG XÁC THỰC (AUTHENTICATION)
+# ==========================================
+
+### Đăng ký tài khoản kiểm thử
+POST {{Host}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "pha@example.com",
+  "password": "pha@example.com",
+  "displayName": "Pha Developer"
+}
+
+### Đăng nhập nhận Access Token (JWT)
+# Copy "accessToken" nhận được từ kết quả và dùng để test các API khác
+POST {{Host}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "pha@example.com",
+  "password": "pha@example.com"
+}
+
+
+# ==========================================
+# 2. BRAND PERSONA & ONBOARDING (Cần JWT Authorize)
+# ==========================================
+
+### Khảo sát tạo chân dung Persona mới
+POST {{Host}}/context/onboarding
+Content-Type: application/json
+
+{
+  "userId": "{{UserId}}",
+  "language": "vi",
+  "answers": [
+    "Tôi kinh doanh thời trang nam cao cấp, chuyên cung cấp các mẫu vest công sở, quần tây và áo sơ mi phom dáng lịch lãm.",
+    "Khách hàng của tôi là nam giới công sở, doanh nhân trẻ từ 25 đến 45 tuổi, những người cần vẻ ngoài chuyên nghiệp, chỉn chu và nam tính.",
+    "Tôi muốn truyền tải thông điệp về sự tự tin, phong thái lịch lãm của người đàn ông thành đạt, nhấn mạnh vào chất liệu bền bỉ và phom dáng tinh tế tôn dáng."
+  ]
+}
+
+### Xem thông tin Persona chi tiết trong DB
+GET {{Host}}/context/persona?userId={{UserId}}
+
+### Cập nhật thủ công các tiêu chí của Persona
+PUT {{Host}}/context/persona?userId={{UserId}}
+Content-Type: application/json
+
+{
+  "jobTitle": "Thương hiệu Thời trang Nam Lịch lãm - Pha Gent",
+  "toneOfVoice": "Trưởng thành, Lịch thiệp, Tự tin và Đáng tin cậy",
+  "language": "vi",
+  "platformPreferences": ["Facebook", "LinkedIn"],
+  "targetAudience": ["Nam giới công sở", "Doanh nhân trẻ", "Quý ông lịch lãm"],
+  "contentFormats": ["Bài đăng chia sẻ mẹo phối đồ", "Bài đăng giới thiệu sản phẩm mới", "Câu chuyện thương hiệu"],
+  "negativeConstraints": ["Hình ảnh mặc đồ hở hang như nữ", "Giọng điệu cợt nhả hoặc quá trẻ con", "Quảng cáo giật gân, rẻ tiền"]
+}
+
+
+# ==========================================
+# 3. NẠP TRI THỨC SẢN PHẨM (KNOWLEDGE INGESTION)
+# ==========================================
+
+### Nạp tri thức thủ công vào MySQL
+POST {{Host}}/knowledge/manual
+Content-Type: application/json
+
+{
+  "title": "Tài liệu Phom dáng Quần tây Nam Cao cấp 2026",
+  "rawContent": "Các sản phẩm quần tây nam của Pha Gent sử dụng chất liệu vải Cotton Spandex co giãn nhẹ, giữ phom tốt và chống nhăn tuyệt đối sau khi giặt. Thiết kế cạp quần thông minh có thể nới lỏng thêm 2-3 cm tạo sự thoải mái tối đa cho quý ông công sở phải ngồi làm việc cả ngày. Đây là dòng sản phẩm tập trung vào độ bền bỉ dài lâu, phom dáng đứng chuẩn nam tính và mức giá cực kỳ tối ưu, mang lại sự đầu tư xứng đáng cho bản thân quý ông."
+}
+
+### Thu thập tri thức từ website (Scrape)
+POST {{Host}}/knowledge/scrape
+Content-Type: application/json
+
+{
+  "targetUrl": "https://trends.google.com/trends/trendingsearches/daily"
+}
+
+
+# ==========================================
+# 4. TRUY VẤN XU HƯỚNG (TRENDS & TAGS)
+# ==========================================
+
+### Lấy danh sách Trends mới nhất từ DB
+GET {{Host}}/trends?page=1&pageSize=10
+
+### Lấy danh sách thẻ Tags trong DB
+GET {{Host}}/trends/tags
+
+
+# ==========================================
+# 5. SINH NỘI DUNG & THAO TÚNG TÂM LÝ
+# ==========================================
+
+### Sinh nội dung kết hợp RAG & Thao túng tâm lý (Tự động match trend)
+POST {{Host}}/content/generate
+Content-Type: application/json
+
+{
+  "userId": "{{UserId}}",
+  "trendId": null,
+  "outputCount": 2,
+  "language": "vi",
+  "targetPlatforms": [
+    "Facebook",
+    "LinkedIn"
+  ],
+  "generateImage": false
+}
+
+### Trợ lý Chấm điểm & Thâu tóm tâm lý bài viết (Brand Coach alignment)
+POST {{Host}}/content/check-alignment
+Content-Type: application/json
+
+{
+  "userId": "{{UserId}}",
+  "draftContent": "Đầu tháng này bên mình có nhập về mấy mẫu quần tây nam mới cực đẹp cho các anh mặc đi làm. Chất vải mát, bền đẹp và giá rất tốt. Các anh ủng hộ em nha, inbox để em tư vấn size ạ."
+}
+
+### Lấy lịch sử bài đăng đã sinh
+GET {{Host}}/content/history?userId={{UserId}}&page=1&pageSize=5
