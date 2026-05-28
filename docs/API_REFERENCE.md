@@ -18,6 +18,8 @@
 8. [Admin Panel](#8-admin-panel)
 9. [Health Check](#9-health-check)
 10. [Gợi ý tính năng mới (MVP+)](#10-gợi-ý-tính-năng-mới-mvp)
+11. [Payment — Thanh toán](#11-payment--thanh-toán)
+12. [Tier & Quota chi tiết](#12-tier--quota-chi-tiết)
 
 ---
 
@@ -1070,6 +1072,266 @@ POST   /admin/users/{id}/reset-quota → reset quota về DailyQuotaLimit ngay
 
 ---
 
+## 11. Payment — Thanh toán
+
+### 11.1 Danh sách gói dịch vụ
+
+**`GET /payment/plans`** — Không cần auth
+
+**User story:** FE render trang pricing hiển thị 3 gói Free/Pro/Enterprise với giá và tính năng để user so sánh và chọn nâng cấp.
+
+```json
+// Response 200
+{
+  "plans": [
+    {
+      "tier": "Free",
+      "price": 0,
+      "billingCycle": "forever",
+      "features": ["5 lượt/ngày", "TrendBased & PersonaDriven", "Knowledge Base", "Brand Alignment", "Lịch sử"]
+    },
+    {
+      "tier": "Pro",
+      "price": 50000,
+      "billingCycle": "monthly",
+      "features": ["50 lượt/ngày", "Tất cả Free", "Ưu tiên AI", "Hỗ trợ email"]
+    },
+    {
+      "tier": "Enterprise",
+      "price": 79000,
+      "billingCycle": "monthly",
+      "features": ["500 lượt/ngày", "Tất cả Pro", "Hỗ trợ 24/7", "Custom quota"]
+    }
+  ]
+}
+```
+
+---
+
+### 11.2 Tạo đơn thanh toán
+
+**`POST /payment/create`** 🔒
+
+**User story:** User chọn gói Pro/Enterprise → hệ thống tạo link thanh toán payOS với QR code và thông tin chuyển khoản thủ công. User quét QR hoặc chuyển khoản → payOS tự động gọi webhook → tier nâng cấp.
+
+```json
+// Request
+{
+  "tier": "Pro"
+}
+
+// Response 200
+{
+  "orderId": 42,
+  "orderCode": 1748500123456,
+  "checkoutUrl": "https://pay.payos.vn/web/abc123",
+  "qrCodeUrl": "https://api.vietqr.io/image/...",
+  "bankTransfer": {
+    "bankName": "MB Bank",
+    "accountNumber": "1234567890",
+    "accountName": "CONG TY SOCIALSENSE",
+    "amount": 50000,
+    "description": "SS1748500123456"
+  },
+  "expiresAt": "2026-05-28T15:30:00Z"
+}
+```
+
+> ⚠️ **Lưu ý quan trọng:** `description` tối đa 25 ký tự, dùng làm nội dung chuyển khoản — user phải nhập đúng nội dung này khi chuyển khoản thủ công để hệ thống tự động xác nhận.
+
+---
+
+### 11.3 Webhook từ payOS
+
+**`POST /payment/webhook`** — Không cần auth (payOS gọi)
+
+**User story:** payOS gọi endpoint này sau khi xác nhận giao dịch thành công. App verify HMAC-SHA256 signature, cập nhật đơn hàng, tạo subscription 30 ngày, nâng tier + quota cho user.
+
+> ⚠️ **Lưu ý quan trọng:** `orderCode = 123` là request test của payOS khi đăng ký webhook — trả về 200 ngay mà không verify signature. Đây là hành vi bắt buộc theo spec payOS.
+
+```json
+// Payload từ payOS (hệ thống tự xử lý, FE không cần gọi)
+{
+  "code": "00",
+  "desc": "success",
+  "success": true,
+  "data": {
+    "orderCode": 1748500123456,
+    "amount": 50000,
+    "description": "SS1748500123456",
+    "accountNumber": "1234567890",
+    "reference": "TXN_REF_ABC",
+    "transactionDateTime": "2026-05-28T14:00:00Z",
+    "currency": "VND",
+    "paymentLinkId": "abc123",
+    "code": "00",
+    "desc": "Thành công",
+    "counterAccountBankId": null,
+    "counterAccountBankName": null,
+    "counterAccountName": null,
+    "counterAccountNumber": null,
+    "virtualAccountName": null,
+    "virtualAccountNumber": null
+  },
+  "signature": "hmac_sha256_signature_here"
+}
+
+// Response 200 — luôn trả về 200 để payOS không retry
+{ "code": "00", "desc": "success" }
+```
+
+---
+
+### 11.4 Kiểm tra trạng thái đơn hàng
+
+**`GET /payment/orders/{orderCode}/status`** 🔒
+
+**User story:** FE polling mỗi 3-5 giây sau khi user quét QR để biết đã thanh toán chưa. Khi `status = "Paid"` thì dừng polling và hiển thị thông báo nâng cấp thành công.
+
+```json
+// GET /payment/orders/1748500123456/status
+
+// Response 200
+{
+  "orderId": 42,
+  "orderCode": 1748500123456,
+  "status": "Pending",
+  "tier": "Pro",
+  "amount": 50000,
+  "paidAt": null,
+  "createdAt": "2026-05-28T14:00:00Z"
+}
+
+// Response 200 — sau khi thanh toán
+{
+  "orderId": 42,
+  "orderCode": 1748500123456,
+  "status": "Paid",
+  "tier": "Pro",
+  "amount": 50000,
+  "paidAt": "2026-05-28T14:05:30Z",
+  "createdAt": "2026-05-28T14:00:00Z"
+}
+```
+
+**Các giá trị `status`:** `Pending` | `Paid` | `Cancelled` | `Expired`
+
+---
+
+### 11.5 Thông tin subscription hiện tại
+
+**`GET /payment/subscription`** 🔒
+
+**User story:** Hiển thị thông tin gói hiện tại của user — tier, ngày hết hạn, số ngày còn lại. Dùng cho trang "Tài khoản" hoặc banner nhắc gia hạn.
+
+```json
+// Response 200
+{
+  "userId": 11,
+  "tier": "Pro",
+  "status": "Active",
+  "startedAt": "2026-05-28T14:05:30Z",
+  "expiresAt": "2026-06-28T14:05:30Z",
+  "daysRemaining": 30,
+  "isActive": true
+}
+
+// Response 200 — gói Free (không có subscription)
+{
+  "userId": 11,
+  "tier": "Free",
+  "status": "None",
+  "startedAt": null,
+  "expiresAt": null,
+  "daysRemaining": null,
+  "isActive": false
+}
+```
+
+---
+
+### 11.6 Lịch sử thanh toán
+
+**`GET /payment/history`** 🔒
+
+**User story:** Trang lịch sử thanh toán — user xem tất cả đơn hàng đã tạo, trạng thái từng đơn.
+
+```
+GET /payment/history?page=1&pageSize=10
+
+// Response 200
+{
+  "totalCount": 3,
+  "page": 1,
+  "pageSize": 10,
+  "items": [
+    {
+      "orderId": 42,
+      "orderCode": 1748500123456,
+      "tier": "Pro",
+      "amount": 50000,
+      "status": "Paid",
+      "paidAt": "2026-05-28T14:05:30Z",
+      "createdAt": "2026-05-28T14:00:00Z"
+    },
+    {
+      "orderId": 38,
+      "orderCode": 1748400987654,
+      "tier": "Pro",
+      "amount": 50000,
+      "status": "Expired",
+      "paidAt": null,
+      "createdAt": "2026-04-28T10:00:00Z"
+    }
+  ]
+}
+```
+
+---
+
+## 12. Tier & Quota chi tiết
+
+### Bảng tier
+
+| Tier | DailyQuotaLimit | Giá | Ghi chú |
+|------|----------------|-----|---------|
+| **Free** | 5/ngày | 0 | Mặc định khi đăng ký |
+| **Pro** | 50/ngày | 50.000 VND/tháng | Thanh toán qua payOS |
+| **Enterprise** | 500/ngày hoặc -1 | 79.000 VND/tháng | -1 = unlimited |
+
+### Quy tắc quota
+
+- Quota reset tự động về `DailyQuotaLimit` mỗi ngày mới (UTC), kích hoạt khi có request đầu tiên trong ngày.
+- **Chỉ trừ quota khi AI thật thành công** — fallback không bị trừ.
+- `DailyQuotaLimit = -1` → Enterprise unlimited, bỏ qua mọi kiểm tra quota.
+- FE nên gọi `GET /auth/quota` sau mỗi lần generate để cập nhật số lượt còn lại real-time.
+
+### Flow nâng cấp tier qua thanh toán
+
+```
+User chọn gói → POST /payment/create
+    │
+    ├─ Hệ thống tạo PaymentOrder (status: Pending)
+    ├─ Tạo link payOS với QR code + thông tin chuyển khoản
+    │
+    ▼
+User quét QR hoặc chuyển khoản thủ công
+    │
+    ▼
+payOS xác nhận giao dịch → POST /payment/webhook
+    │
+    ├─ App verify HMAC-SHA256 signature
+    ├─ Cập nhật PaymentOrder (status: Paid)
+    ├─ Tạo Subscription (30 ngày)
+    └─ Nâng tier + quota cho user
+    │
+    ▼
+FE polling GET /payment/orders/{orderCode}/status
+    └─ Khi status = "Paid" → hiển thị thông báo thành công
+```
+
+---
+
 ## Phụ lục — Error Codes
 
 | Code | HTTP | Mô tả |
@@ -1093,6 +1355,10 @@ POST   /admin/users/{id}/reset-quota → reset quota về DailyQuotaLimit ngay
 | `EMAIL_EXISTS` | 400 | Email đã tồn tại (admin create) |
 | `CANNOT_DELETE_SELF` | 400 | Admin không tự xóa mình |
 | `KEY_ALREADY_EXISTS` | 400 | API key đã tồn tại |
+| `ALREADY_SUBSCRIBED` | 400 | Đã có subscription active cùng tier |
+| `PAYMENT_GATEWAY_ERROR` | 502 | payOS API lỗi |
+| `ORDER_NOT_FOUND` | 404 | Không tìm thấy đơn hàng |
+| `INVALID_SIGNATURE` | 400 | Webhook signature không hợp lệ |
 
 ---
 
