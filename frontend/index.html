@@ -1,412 +1,523 @@
 <!DOCTYPE html>
-<html lang="vi" data-theme="dark">
+<html lang="vi">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SocialSense — AI Content Platform</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
-<body>
+<body class="dark-canvas">
 
-<!-- ═══════════════════════════════════════════════════════════
-     TOP NAV
-═══════════════════════════════════════════════════════════ -->
-<nav class="top-nav" id="topNav">
-  <div class="nav-inner">
-    <a class="nav-brand" href="#" onclick="showPage('dashboard')">
-      <span class="brand-icon">◈</span>
-      <span class="brand-name">SocialSense</span>
-    </a>
-    <ul class="nav-links" id="navLinks">
-      <li><a href="#" class="nav-link active" data-page="dashboard" onclick="showPage('dashboard')">Dashboard</a></li>
-      <li><a href="#" class="nav-link" data-page="generate" onclick="showPage('generate')">Tạo Nội Dung</a></li>
-      <li><a href="#" class="nav-link" data-page="trends" onclick="showPage('trends')">Xu Hướng</a></li>
-      <li><a href="#" class="nav-link" data-page="knowledge" onclick="showPage('knowledge')">Knowledge Base</a></li>
-      <li><a href="#" class="nav-link" data-page="history" onclick="showPage('history')">Lịch Sử</a></li>
-      <li><a href="#" class="nav-link" data-page="alignment" onclick="showPage('alignment')">Brand Check</a></li>
-    </ul>
-    <div class="nav-actions">
-      <span class="quota-badge" id="quotaBadge" style="display:none">
-        <span class="quota-icon">⚡</span>
-        <span id="quotaText">10 quota</span>
-      </span>
-      <button class="btn-secondary-dark" id="btnLogout" style="display:none" onclick="logout()">Đăng xuất</button>
-      <button class="btn-primary" id="btnLogin" onclick="showPage('login')">Đăng nhập</button>
-      <button class="hamburger" id="hamburger" onclick="toggleMenu()" aria-label="Menu">☰</button>
-    </div>
-  </div>
-</nav>
-
-<!-- ═══════════════════════════════════════════════════════════
-     PAGES CONTAINER
-═══════════════════════════════════════════════════════════ -->
-<main class="page-container">
-
-  <!-- ── LOGIN PAGE ── -->
-  <section class="page" id="page-login">
-    <div class="auth-wrap">
-      <div class="auth-card">
-        <div class="auth-logo">
-          <span class="brand-icon-lg">◈</span>
-          <h1 class="auth-title">SocialSense</h1>
-          <p class="auth-sub">AI-Powered Social Content Platform</p>
-        </div>
-        <div class="tab-row">
-          <button class="tab-btn active" id="tabLogin" onclick="switchAuthTab('login')">Đăng nhập</button>
-          <button class="tab-btn" id="tabRegister" onclick="switchAuthTab('register')">Đăng ký</button>
-        </div>
-        <!-- Login Form -->
-        <form id="loginForm" onsubmit="handleLogin(event)">
-          <div class="form-group">
-            <label class="form-label">Email</label>
-            <input type="email" class="form-input" id="loginEmail" placeholder="you@example.com" required />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Mật khẩu</label>
-            <input type="password" class="form-input" id="loginPassword" placeholder="••••••••" required />
-          </div>
-          <div class="form-error" id="loginError"></div>
-          <button type="submit" class="btn-primary btn-full" id="loginBtn">Đăng nhập</button>
-        </form>
-        <!-- Register Form -->
-        <form id="registerForm" style="display:none" onsubmit="handleRegister(event)">
-          <div class="form-group">
-            <label class="form-label">Tên hiển thị</label>
-            <input type="text" class="form-input" id="regName" placeholder="Nguyễn Văn A" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Email</label>
-            <input type="email" class="form-input" id="regEmail" placeholder="you@example.com" required />
-          </div>
-          <div class="form-group">
-            <label class="form-label">Mật khẩu</label>
-            <input type="password" class="form-input" id="regPassword" placeholder="Tối thiểu 6 ký tự" required minlength="6" />
-          </div>
-          <div class="form-error" id="registerError"></div>
-          <button type="submit" class="btn-primary btn-full" id="registerBtn">Tạo tài khoản</button>
-        </form>
+  <!-- ── TOP NAV ── -->
+  <nav class="top-nav" id="topNav">
+    <div class="nav-inner">
+      <a href="#" class="wordmark" onclick="showPage('home')">
+        <span class="wordmark-icon">◈</span> SocialSense
+      </a>
+      <div class="nav-links" id="navLinks">
+        <a href="#" class="nav-link" onclick="showPage('home')">Trang chủ</a>
+        <a href="#" class="nav-link" onclick="showPage('generate')">Tạo nội dung</a>
+        <a href="#" class="nav-link" onclick="showPage('trends')">Xu hướng</a>
+        <a href="#" class="nav-link" onclick="showPage('history')">Lịch sử</a>
+        <a href="#" class="nav-link" onclick="showPage('knowledge')">Knowledge</a>
+        <a href="#" class="nav-link admin-link hidden" onclick="showPage('admin')">Admin</a>
       </div>
-    </div>
-  </section>
-
-  <!-- ── ONBOARDING PAGE ── -->
-  <section class="page" id="page-onboarding" style="display:none">
-    <div class="onboard-wrap">
-      <div class="onboard-card">
-        <div class="onboard-header">
-          <span class="step-badge">Thiết lập ban đầu</span>
-          <h2 class="onboard-title">Cho chúng tôi biết về thương hiệu của bạn</h2>
-          <p class="onboard-sub">AI sẽ phân tích và tạo Brand Persona phù hợp nhất cho bạn</p>
+      <div class="nav-actions">
+        <div id="navGuest">
+          <button class="btn-tertiary" onclick="showPage('login')">Đăng nhập</button>
+          <button class="btn-primary btn-pill" onclick="showPage('register')">Đăng ký</button>
         </div>
-        <form id="onboardForm" onsubmit="handleOnboarding(event)">
-          <div class="onboard-questions" id="onboardQuestions">
-            <div class="form-group">
-              <label class="form-label">1. Bạn đang kinh doanh / làm việc trong lĩnh vực gì?</label>
-              <input type="text" class="form-input" id="q1" placeholder="VD: Thời trang nam, Bất động sản, Công nghệ..." required />
-            </div>
-            <div class="form-group">
-              <label class="form-label">2. Khách hàng mục tiêu của bạn là ai?</label>
-              <input type="text" class="form-input" id="q2" placeholder="VD: Nam 25-35 tuổi, thu nhập trung bình khá..." required />
-            </div>
-            <div class="form-group">
-              <label class="form-label">3. Tone of voice thương hiệu của bạn như thế nào?</label>
-              <input type="text" class="form-input" id="q3" placeholder="VD: Chuyên nghiệp, thân thiện, hài hước..." required />
-            </div>
-            <div class="form-group">
-              <label class="form-label">4. Bạn thường đăng nội dung trên nền tảng nào?</label>
-              <input type="text" class="form-input" id="q4" placeholder="VD: Facebook, Instagram, TikTok, LinkedIn..." />
-            </div>
-            <div class="form-group">
-              <label class="form-label">5. Có chủ đề / từ ngữ nào bạn KHÔNG muốn xuất hiện trong nội dung?</label>
-              <input type="text" class="form-input" id="q5" placeholder="VD: Chính trị, cạnh tranh trực tiếp, giảm giá..." />
-            </div>
-          </div>
-          <div class="lang-row">
-            <label class="form-label">Ngôn ngữ nội dung:</label>
-            <div class="radio-group">
-              <label class="radio-label"><input type="radio" name="lang" value="vi" checked /> Tiếng Việt</label>
-              <label class="radio-label"><input type="radio" name="lang" value="en" /> English</label>
-            </div>
-          </div>
-          <div class="form-error" id="onboardError"></div>
-          <button type="submit" class="btn-primary btn-full" id="onboardBtn">Phân tích & Tạo Brand Persona ✦</button>
-        </form>
+        <div id="navUser" class="hidden">
+          <span class="nav-user-name" id="navUserName"></span>
+          <span class="quota-badge" id="navQuota"></span>
+          <button class="btn-tertiary" onclick="logout()">Đăng xuất</button>
+        </div>
       </div>
+      <button class="hamburger" id="hamburger" onclick="toggleMenu()">☰</button>
     </div>
-  </section>
+  </nav>
 
-  <!-- ── DASHBOARD PAGE ── -->
-  <section class="page" id="page-dashboard" style="display:none">
-    <div class="page-inner">
-      <div class="hero-band">
+  <!-- ── PAGES ── -->
+  <main id="appRoot">
+    <!-- HOME -->
+    <div id="page-home" class="page active">
+      <section class="hero-band">
         <div class="hero-content">
-          <p class="hero-eyebrow">Xin chào, <span id="heroName">User</span> 👋</p>
-          <h1 class="hero-title">Tạo nội dung viral<br/><span class="accent-text">với sức mạnh AI</span></h1>
-          <p class="hero-sub">Phân tích xu hướng · Lồng ghép thương hiệu · Sinh content chuyên nghiệp</p>
-          <div class="hero-ctas">
-            <button class="btn-primary-pill" onclick="showPage('generate')">Tạo nội dung ngay ✦</button>
-            <button class="btn-secondary-dark" onclick="showPage('trends')">Xem xu hướng</button>
+          <div class="hero-badge">AI-Powered Content Platform</div>
+          <h1 class="hero-display">TẠO NỘI DUNG<br/><span class="text-primary">ĐỈNH CAO</span><br/>BẰNG AI</h1>
+          <p class="hero-sub">Phân tích persona, bắt trend, sinh content tâm lý — tất cả trong 1 click.</p>
+          <div class="hero-cta-row">
+            <button class="btn-primary btn-pill btn-lg" onclick="showPage('register')">Bắt đầu miễn phí</button>
+            <button class="btn-secondary-dark" onclick="showPage('generate')">Xem demo</button>
           </div>
         </div>
         <div class="hero-stats">
           <div class="stat-card">
-            <span class="stat-number" id="statContent">—</span>
-            <span class="stat-label">Nội dung đã tạo</span>
+            <div class="stat-number">10K+</div>
+            <div class="stat-label">Người dùng</div>
           </div>
           <div class="stat-card">
-            <span class="stat-number" id="statQuota">—</span>
-            <span class="stat-label">Quota còn lại hôm nay</span>
+            <div class="stat-number">500K+</div>
+            <div class="stat-label">Nội dung đã tạo</div>
           </div>
           <div class="stat-card">
-            <span class="stat-number" id="statTrends">—</span>
-            <span class="stat-label">Xu hướng đang hot</span>
+            <div class="stat-number">99.9%</div>
+            <div class="stat-label">Uptime</div>
           </div>
         </div>
-      </div>
+      </section>
 
-      <!-- Persona Card -->
-      <div class="section-row">
-        <h2 class="section-title">Brand Persona của bạn</h2>
-        <button class="btn-text-link" onclick="showPage('onboarding')">Cập nhật →</button>
-      </div>
-      <div class="persona-card" id="personaCard">
-        <div class="persona-loading">Đang tải persona...</div>
-      </div>
+      <!-- Trust badges -->
+      <section class="trust-section">
+        <div class="container">
+          <div class="trust-grid">
+            <div class="trust-badge-card">
+              <div class="trust-icon">🏠</div>
+              <div class="trust-title">Bất động sản</div>
+              <div class="trust-desc">Hook tâm lý FOMO, khan hiếm, future pacing</div>
+            </div>
+            <div class="trust-badge-card">
+              <div class="trust-icon">💰</div>
+              <div class="trust-title">Tài chính</div>
+              <div class="trust-desc">Social proof, urgency, identity triggers</div>
+            </div>
+            <div class="trust-badge-card">
+              <div class="trust-icon">👗</div>
+              <div class="trust-title">Thời trang</div>
+              <div class="trust-desc">Status, exclusivity, transformation</div>
+            </div>
+            <div class="trust-badge-card">
+              <div class="trust-icon">📚</div>
+              <div class="trust-title">Giáo dục</div>
+              <div class="trust-desc">Pain agitation, transformation promise</div>
+            </div>
+          </div>
+        </div>
+      </section>
 
-      <!-- Quick Actions -->
-      <h2 class="section-title" style="margin-top:32px">Thao tác nhanh</h2>
-      <div class="quick-grid">
-        <div class="quick-card" onclick="showPage('generate')">
-          <span class="quick-icon">✦</span>
-          <span class="quick-label">Tạo nội dung</span>
-          <span class="quick-desc">AI sinh content từ xu hướng hot</span>
+      <!-- Features -->
+      <section class="features-section">
+        <div class="container">
+          <h2 class="section-title">Tính năng nổi bật</h2>
+          <div class="features-grid">
+            <div class="feature-card">
+              <div class="feature-icon text-primary">⚡</div>
+              <h3 class="feature-title">PersonaDriven AI</h3>
+              <p class="feature-desc">AI đọc sâu persona, tự suy luận ngành nghề và áp dụng công thức tâm lý phù hợp nhất.</p>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon text-primary">📈</div>
+              <h3 class="feature-title">Trend Matching</h3>
+              <p class="feature-desc">Tự động chọn xu hướng hot nhất phù hợp với thương hiệu của bạn.</p>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon text-primary">🎯</div>
+              <h3 class="feature-title">Brand Alignment</h3>
+              <p class="feature-desc">Kiểm tra và tối ưu nội dung theo đúng giọng điệu thương hiệu.</p>
+            </div>
+            <div class="feature-card">
+              <div class="feature-icon text-primary">🧠</div>
+              <h3 class="feature-title">Knowledge Base</h3>
+              <p class="feature-desc">Upload tài liệu, crawl web — AI học từ dữ liệu của bạn.</p>
+            </div>
+          </div>
         </div>
-        <div class="quick-card" onclick="showPage('trends')">
-          <span class="quick-icon">📈</span>
-          <span class="quick-label">Xu hướng</span>
-          <span class="quick-desc">Khám phá trends đang viral</span>
+      </section>
+
+      <!-- CTA Band -->
+      <section class="cta-band">
+        <div class="container">
+          <div class="cta-band-inner">
+            <h2 class="cta-band-title">Bắt đầu tạo nội dung đỉnh cao ngay hôm nay</h2>
+            <button class="btn-primary btn-lg" onclick="showPage('register')">Đăng ký miễn phí</button>
+          </div>
         </div>
-        <div class="quick-card" onclick="showPage('knowledge')">
-          <span class="quick-icon">🧠</span>
-          <span class="quick-label">Knowledge Base</span>
-          <span class="quick-desc">Thêm tài liệu thương hiệu</span>
-        </div>
-        <div class="quick-card" onclick="showPage('alignment')">
-          <span class="quick-icon">✅</span>
-          <span class="quick-label">Brand Check</span>
-          <span class="quick-desc">Kiểm tra nội dung nháp</span>
+      </section>
+    </div>
+
+    <!-- LOGIN -->
+    <div id="page-login" class="page light-canvas">
+      <div class="auth-container">
+        <div class="auth-card">
+          <div class="auth-logo">◈ SocialSense</div>
+          <h2 class="auth-title">Đăng nhập</h2>
+          <div id="loginError" class="alert-error hidden"></div>
+          <form onsubmit="handleLogin(event)">
+            <div class="form-group">
+              <label class="form-label">Email</label>
+              <input type="email" id="loginEmail" class="text-input" placeholder="email@example.com" required />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Mật khẩu</label>
+              <input type="password" id="loginPassword" class="text-input" placeholder="••••••••" required />
+            </div>
+            <button type="submit" class="btn-primary btn-full" id="loginBtn">Đăng nhập</button>
+          </form>
+          <p class="auth-switch">Chưa có tài khoản? <a href="#" class="text-link" onclick="showPage('register')">Đăng ký ngay</a></p>
         </div>
       </div>
     </div>
-  </section>
 
-  <!-- ── GENERATE PAGE ── -->
-  <section class="page" id="page-generate" style="display:none">
-    <div class="page-inner">
-      <div class="page-header">
-        <h2 class="page-title">Tạo Nội Dung AI</h2>
-        <p class="page-sub">AI sẽ chọn xu hướng phù hợp, lồng ghép knowledge và sinh content chuyên nghiệp</p>
-      </div>
-      <div class="gen-layout">
-        <!-- Left: Config -->
-        <div class="gen-config">
-          <div class="config-card">
-            <h3 class="config-title">Cấu hình</h3>
+    <!-- REGISTER -->
+    <div id="page-register" class="page light-canvas">
+      <div class="auth-container">
+        <div class="auth-card">
+          <div class="auth-logo">◈ SocialSense</div>
+          <h2 class="auth-title">Tạo tài khoản</h2>
+          <div id="registerError" class="alert-error hidden"></div>
+          <div id="registerSuccess" class="alert-success hidden"></div>
+          <form onsubmit="handleRegister(event)">
             <div class="form-group">
-              <label class="form-label">Xu hướng (để trống = AI tự chọn)</label>
-              <select class="form-input" id="trendSelect">
-                <option value="">🤖 AI tự chọn xu hướng phù hợp nhất</option>
-              </select>
+              <label class="form-label">Tên hiển thị</label>
+              <input type="text" id="regName" class="text-input" placeholder="Nguyễn Văn A" required />
             </div>
             <div class="form-group">
-              <label class="form-label">Số lượng bài viết</label>
-              <div class="count-row">
-                <button class="count-btn" onclick="changeCount(-1)">−</button>
-                <span class="count-val" id="outputCount">1</span>
-                <button class="count-btn" onclick="changeCount(1)">+</button>
-              </div>
+              <label class="form-label">Email</label>
+              <input type="email" id="regEmail" class="text-input" placeholder="email@example.com" required />
             </div>
             <div class="form-group">
-              <label class="form-label">Nền tảng mục tiêu</label>
-              <div class="platform-chips" id="platformChips">
-                <button class="chip active" data-platform="Facebook" onclick="togglePlatform(this)">Facebook</button>
-                <button class="chip" data-platform="Instagram" onclick="togglePlatform(this)">Instagram</button>
-                <button class="chip" data-platform="TikTok" onclick="togglePlatform(this)">TikTok</button>
-                <button class="chip" data-platform="LinkedIn" onclick="togglePlatform(this)">LinkedIn</button>
-                <button class="chip" data-platform="Twitter" onclick="togglePlatform(this)">Twitter</button>
-              </div>
+              <label class="form-label">Mật khẩu</label>
+              <input type="password" id="regPassword" class="text-input" placeholder="Tối thiểu 6 ký tự" required />
             </div>
-            <div class="form-group">
-              <label class="form-label">Ngôn ngữ</label>
-              <div class="radio-group">
-                <label class="radio-label"><input type="radio" name="genLang" value="vi" checked /> Tiếng Việt</label>
-                <label class="radio-label"><input type="radio" name="genLang" value="en" /> English</label>
-              </div>
-            </div>
-            <button class="btn-primary btn-full" id="generateBtn" onclick="handleGenerate()">
-              <span id="generateBtnText">✦ Tạo nội dung</span>
-            </button>
-          </div>
+            <button type="submit" class="btn-primary btn-full" id="registerBtn">Tạo tài khoản</button>
+          </form>
+          <p class="auth-switch">Đã có tài khoản? <a href="#" class="text-link" onclick="showPage('login')">Đăng nhập</a></p>
         </div>
-        <!-- Right: Results -->
-        <div class="gen-results" id="genResults">
-          <div class="results-empty">
-            <span class="empty-icon">✦</span>
-            <p>Kết quả sẽ hiển thị ở đây</p>
-            <p class="empty-sub">Cấu hình bên trái và nhấn "Tạo nội dung"</p>
+      </div>
+    </div>
+
+    <!-- GENERATE CONTENT -->
+    <div id="page-generate" class="page">
+      <div class="container page-content">
+        <div class="page-header">
+          <h1 class="page-title">Tạo nội dung AI</h1>
+          <p class="page-subtitle">Sinh content tâm lý theo persona hoặc xu hướng hot nhất</p>
+        </div>
+
+        <div class="generate-layout">
+          <!-- Left: Form -->
+          <div class="generate-form-panel">
+            <div class="card">
+              <h3 class="card-title">Cấu hình nội dung</h3>
+
+              <div class="form-group">
+                <label class="form-label">Chế độ tạo nội dung</label>
+                <div class="mode-toggle">
+                  <button class="mode-btn active" id="modeTrendBtn" onclick="setMode('TrendBased')">
+                    📈 Theo Trend
+                  </button>
+                  <button class="mode-btn" id="modePersonaBtn" onclick="setMode('PersonaDriven')">
+                    🧠 Theo Persona
+                  </button>
+                </div>
+                <p class="form-hint" id="modeHint">AI chọn trend phù hợp nhất với persona của bạn</p>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Nền tảng mục tiêu</label>
+                <div class="platform-chips" id="platformChips">
+                  <button class="chip active" onclick="togglePlatform(this, 'Facebook')">Facebook</button>
+                  <button class="chip" onclick="togglePlatform(this, 'Instagram')">Instagram</button>
+                  <button class="chip" onclick="togglePlatform(this, 'TikTok')">TikTok</button>
+                  <button class="chip" onclick="togglePlatform(this, 'Zalo')">Zalo</button>
+                  <button class="chip" onclick="togglePlatform(this, 'LinkedIn')">LinkedIn</button>
+                  <button class="chip" onclick="togglePlatform(this, 'Twitter')">Twitter/X</button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Số lượng bài viết <span class="muted">(1-3)</span></label>
+                <div class="count-selector">
+                  <button class="count-btn active" onclick="setCount(1, this)">1</button>
+                  <button class="count-btn" onclick="setCount(2, this)">2</button>
+                  <button class="count-btn" onclick="setCount(3, this)">3</button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Ngôn ngữ</label>
+                <select class="text-input" id="genLanguage">
+                  <option value="vi">🇻🇳 Tiếng Việt</option>
+                  <option value="en">🇺🇸 English</option>
+                </select>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Yêu cầu bổ sung <span class="muted">(tuỳ chọn)</span></label>
+                <textarea class="text-input textarea" id="genInstruction" rows="3"
+                  placeholder="VD: Tập trung vào dự án Vinhomes, nhấn mạnh tiện ích hồ bơi và trường học..."></textarea>
+                <div class="char-count"><span id="instrCount">0</span>/1000</div>
+              </div>
+
+              <button class="btn-primary btn-full btn-lg" id="generateBtn" onclick="generateContent()">
+                ⚡ Tạo nội dung ngay
+              </button>
+            </div>
+
+            <!-- Persona quick view -->
+            <div class="card persona-card" id="personaCard">
+              <div class="card-title-row">
+                <h3 class="card-title">Persona của bạn</h3>
+                <button class="btn-tertiary btn-sm" onclick="showPage('persona')">Chỉnh sửa</button>
+              </div>
+              <div id="personaPreview"><p class="muted">Chưa có persona. <a href="#" class="text-link" onclick="showPage('persona')">Thiết lập ngay</a></p></div>
+            </div>
+          </div>
+
+          <!-- Right: Results -->
+          <div class="generate-result-panel">
+            <div id="generateLoading" class="loading-state hidden">
+              <div class="spinner"></div>
+              <p class="loading-text">AI đang tạo nội dung...</p>
+            </div>
+            <div id="generateResults" class="results-container"></div>
+            <div id="generateEmpty" class="empty-state">
+              <div class="empty-icon">✨</div>
+              <p class="empty-text">Kết quả sẽ hiển thị ở đây</p>
+            </div>
           </div>
         </div>
       </div>
     </div>
-  </section>
 
-  <!-- ── TRENDS PAGE ── -->
-  <section class="page" id="page-trends" style="display:none">
-    <div class="page-inner">
-      <div class="page-header">
-        <h2 class="page-title">Xu Hướng Đang Hot</h2>
-        <p class="page-sub">Cập nhật realtime từ mạng xã hội và tin tức</p>
-      </div>
-      <div class="trends-toolbar">
-        <input type="text" class="search-input" id="trendSearch" placeholder="🔍 Tìm xu hướng..." oninput="filterTrends()" />
-        <div class="tag-filters" id="tagFilters"></div>
-      </div>
-      <div class="trends-grid" id="trendsGrid">
-        <div class="loading-state">Đang tải xu hướng...</div>
+    <!-- TRENDS -->
+    <div id="page-trends" class="page">
+      <div class="container page-content">
+        <div class="page-header">
+          <h1 class="page-title">Xu hướng</h1>
+          <p class="page-subtitle">Các xu hướng đang hot — click để tạo content ngay</p>
+        </div>
+        <div class="trends-toolbar">
+          <input type="text" class="search-input" id="trendSearch" placeholder="🔍 Tìm xu hướng..." oninput="filterTrends()" />
+          <select class="text-input select-sm" id="trendSort" onchange="loadTrends()">
+            <option value="hot">🔥 Hot nhất</option>
+            <option value="new">🆕 Mới nhất</option>
+          </select>
+        </div>
+        <div id="trendsGrid" class="trends-grid"></div>
+        <div id="trendsPagination" class="pagination"></div>
       </div>
     </div>
-  </section>
 
-  <!-- ── KNOWLEDGE PAGE ── -->
-  <section class="page" id="page-knowledge" style="display:none">
-    <div class="page-inner">
-      <div class="page-header">
-        <h2 class="page-title">Knowledge Base</h2>
-        <p class="page-sub">Thêm tài liệu thương hiệu để AI lồng ghép vào nội dung</p>
+    <!-- HISTORY -->
+    <div id="page-history" class="page">
+      <div class="container page-content">
+        <div class="page-header">
+          <h1 class="page-title">Lịch sử nội dung</h1>
+          <p class="page-subtitle">Tất cả nội dung bạn đã tạo</p>
+        </div>
+        <div id="historyList" class="history-list"></div>
+        <div id="historyPagination" class="pagination"></div>
       </div>
-      <div class="knowledge-tabs">
-        <button class="tab-btn active" onclick="switchKnowledgeTab('manual', this)">✏️ Nhập thủ công</button>
-        <button class="tab-btn" onclick="switchKnowledgeTab('scrape', this)">🌐 Crawl URL</button>
-        <button class="tab-btn" onclick="switchKnowledgeTab('file', this)">📄 Upload file</button>
-      </div>
-      <!-- Manual -->
-      <div class="knowledge-panel" id="kPanel-manual">
-        <div class="config-card">
+    </div>
+
+    <!-- KNOWLEDGE BASE -->
+    <div id="page-knowledge" class="page">
+      <div class="container page-content">
+        <div class="page-header">
+          <h1 class="page-title">Knowledge Base</h1>
+          <p class="page-subtitle">Dạy AI về sản phẩm, thương hiệu và ngành nghề của bạn</p>
+        </div>
+        <div class="knowledge-tabs">
+          <button class="tab-btn active" onclick="switchKnowledgeTab('manual', this)">✍️ Nhập thủ công</button>
+          <button class="tab-btn" onclick="switchKnowledgeTab('scrape', this)">🌐 Crawl URL</button>
+          <button class="tab-btn" onclick="switchKnowledgeTab('upload', this)">📁 Upload file</button>
+        </div>
+
+        <div id="kb-manual" class="knowledge-panel card">
+          <h3 class="card-title">Nhập nội dung thủ công</h3>
           <div class="form-group">
             <label class="form-label">Tiêu đề</label>
-            <input type="text" class="form-input" id="kManualTitle" placeholder="VD: Bộ nhận diện thương hiệu 2025" required />
+            <input type="text" id="kbManualTitle" class="text-input" placeholder="VD: Thông tin dự án Vinhomes Grand Park" />
           </div>
           <div class="form-group">
             <label class="form-label">Nội dung</label>
-            <textarea class="form-input form-textarea" id="kManualContent" placeholder="Dán nội dung tài liệu thương hiệu, quy chuẩn, thông tin sản phẩm..." rows="8"></textarea>
+            <textarea class="text-input textarea" id="kbManualContent" rows="6" placeholder="Nhập thông tin sản phẩm, dịch vụ, brand guidelines..."></textarea>
           </div>
-          <div class="form-error" id="kManualError"></div>
-          <button class="btn-primary" onclick="handleKnowledgeManual()">Thêm vào Knowledge Base</button>
+          <button class="btn-primary" onclick="ingestManual()">💾 Lưu vào Knowledge Base</button>
+          <div id="kbManualResult" class="mt-md"></div>
         </div>
-      </div>
-      <!-- Scrape -->
-      <div class="knowledge-panel" id="kPanel-scrape" style="display:none">
-        <div class="config-card">
+
+        <div id="kb-scrape" class="knowledge-panel card hidden">
+          <h3 class="card-title">Crawl từ URL</h3>
           <div class="form-group">
             <label class="form-label">URL trang web</label>
-            <input type="url" class="form-input" id="kScrapeUrl" placeholder="https://vnexpress.net/..." />
+            <input type="url" id="kbScrapeUrl" class="text-input" placeholder="https://vnexpress.net/..." />
           </div>
-          <p class="form-hint">Hỗ trợ: wikipedia.org, reddit.com, dev.to, vnexpress.net, trends.google.com</p>
-          <div class="form-error" id="kScrapeError"></div>
-          <button class="btn-primary" onclick="handleKnowledgeScrape()">Crawl & Thêm</button>
+          <button class="btn-primary" onclick="ingestScrape()">🌐 Crawl & Lưu</button>
+          <div id="kbScrapeResult" class="mt-md"></div>
+        </div>
+
+        <div id="kb-upload" class="knowledge-panel card hidden">
+          <h3 class="card-title">Upload file</h3>
+          <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()"
+               ondragover="event.preventDefault()" ondrop="handleFileDrop(event)">
+            <div class="upload-icon">📁</div>
+            <p class="upload-text">Kéo thả hoặc click để chọn file</p>
+            <p class="upload-hint">.txt, .md, .docx, .pdf — tối đa 10MB</p>
+            <input type="file" id="fileInput" accept=".txt,.md,.docx,.pdf" class="hidden" onchange="handleFileSelect(event)" />
+          </div>
+          <div id="kbUploadResult" class="mt-md"></div>
         </div>
       </div>
-      <!-- File -->
-      <div class="knowledge-panel" id="kPanel-file" style="display:none">
-        <div class="config-card">
-          <div class="upload-zone" id="uploadZone" onclick="document.getElementById('fileInput').click()" ondragover="event.preventDefault()" ondrop="handleFileDrop(event)">
-            <span class="upload-icon">📄</span>
-            <p class="upload-text">Kéo thả file hoặc click để chọn</p>
-            <p class="upload-hint">Hỗ trợ: .txt, .md, .docx, .pdf (tối đa 10MB)</p>
-            <input type="file" id="fileInput" accept=".txt,.md,.docx,.pdf" style="display:none" onchange="handleFileSelect(event)" />
-          </div>
-          <div class="form-error" id="kFileError"></div>
+    </div>
+
+    <!-- PERSONA -->
+    <div id="page-persona" class="page light-canvas">
+      <div class="container page-content">
+        <div class="page-header">
+          <h1 class="page-title ink">Thiết lập Persona</h1>
+          <p class="page-subtitle ink-muted">Giúp AI hiểu đúng về bạn để tạo nội dung chuẩn nhất</p>
         </div>
-      </div>
-      <div class="success-toast" id="kSuccess" style="display:none"></div>
-    </div>
-  </section>
-
-  <!-- ── HISTORY PAGE ── -->
-  <section class="page" id="page-history" style="display:none">
-    <div class="page-inner">
-      <div class="page-header">
-        <h2 class="page-title">Lịch Sử Nội Dung</h2>
-        <p class="page-sub">Tất cả nội dung đã tạo, có thể chỉnh sửa và tái sử dụng</p>
-      </div>
-      <div class="history-list" id="historyList">
-        <div class="loading-state">Đang tải lịch sử...</div>
-      </div>
-      <div class="pagination" id="historyPagination"></div>
-    </div>
-  </section>
-
-  <!-- ── BRAND ALIGNMENT PAGE ── -->
-  <section class="page" id="page-alignment" style="display:none">
-    <div class="page-inner">
-      <div class="page-header">
-        <h2 class="page-title">Brand Alignment Check</h2>
-        <p class="page-sub">AI phân tích nội dung nháp và đề xuất cải thiện theo Brand Persona</p>
-      </div>
-      <div class="alignment-layout">
-        <div class="alignment-input">
-          <div class="config-card">
+        <div class="persona-layout">
+          <div class="card light-card">
+            <h3 class="card-title ink">Thông tin cơ bản</h3>
             <div class="form-group">
-              <label class="form-label">Nội dung nháp của bạn</label>
-              <textarea class="form-input form-textarea" id="draftContent" placeholder="Dán bài viết nháp vào đây để AI phân tích..." rows="10"></textarea>
+              <label class="form-label ink">Chức danh / Ngành nghề</label>
+              <input type="text" id="pJobTitle" class="text-input light" placeholder="VD: Môi giới Bất động sản cao cấp" />
             </div>
-            <div class="form-error" id="alignmentError"></div>
-            <button class="btn-primary btn-full" id="alignmentBtn" onclick="handleAlignment()">
-              <span id="alignmentBtnText">✅ Phân tích Brand Alignment</span>
-            </button>
+            <div class="form-group">
+              <label class="form-label ink">Giọng điệu thương hiệu</label>
+              <input type="text" id="pTone" class="text-input light" placeholder="VD: Chuyên nghiệp, tin cậy, gần gũi" />
+            </div>
+            <div class="form-group">
+              <label class="form-label ink">Ngôn ngữ</label>
+              <select class="text-input light" id="pLanguage">
+                <option value="vi">🇻🇳 Tiếng Việt</option>
+                <option value="en">🇺🇸 English</option>
+              </select>
+            </div>
           </div>
-        </div>
-        <div class="alignment-result" id="alignmentResult">
-          <div class="results-empty">
-            <span class="empty-icon">✅</span>
-            <p>Kết quả phân tích sẽ hiển thị ở đây</p>
+
+          <div class="card light-card">
+            <h3 class="card-title ink">Nền tảng & Đối tượng</h3>
+            <div class="form-group">
+              <label class="form-label ink">Nền tảng ưu tiên <span class="muted">(phân cách bằng dấu phẩy)</span></label>
+              <input type="text" id="pPlatforms" class="text-input light" placeholder="Facebook, Zalo, Instagram" />
+            </div>
+            <div class="form-group">
+              <label class="form-label ink">Đối tượng mục tiêu</label>
+              <textarea class="text-input light textarea" id="pAudience" rows="3" placeholder="VD: Nhà đầu tư 35-55 tuổi, thu nhập cao, quan tâm BĐS TP.HCM"></textarea>
+            </div>
+            <div class="form-group">
+              <label class="form-label ink">Format nội dung ưa thích</label>
+              <textarea class="text-input light textarea" id="pFormats" rows="2" placeholder="VD: Phân tích thị trường, Review dự án, Câu chuyện thành công"></textarea>
+            </div>
+            <div class="form-group">
+              <label class="form-label ink">Điều cần tránh</label>
+              <textarea class="text-input light textarea" id="pNegatives" rows="2" placeholder="VD: Không đề cập dự án tranh chấp, không cam kết lợi nhuận cụ thể"></textarea>
+            </div>
+            <div class="btn-row">
+              <button class="btn-primary" onclick="savePersona()">💾 Lưu Persona</button>
+              <button class="btn-secondary-light" onclick="loadPersona()">🔄 Tải lại</button>
+            </div>
+            <div id="personaSaveResult" class="mt-md"></div>
           </div>
         </div>
       </div>
     </div>
-  </section>
 
-</main>
-
-<!-- ═══════════════════════════════════════════════════════════
-     MODALS
-═══════════════════════════════════════════════════════════ -->
-<div class="modal-overlay" id="modalOverlay" onclick="closeModal()" style="display:none">
-  <div class="modal-card" onclick="event.stopPropagation()" id="modalCard"></div>
-</div>
-
-<!-- Toast -->
-<div class="toast" id="toast"></div>
-
-<!-- Footer -->
-<footer class="footer-light">
-  <div class="footer-inner">
-    <div class="footer-brand">
-      <span class="brand-icon">◈</span>
-      <span class="brand-name">SocialSense</span>
+    <!-- CHECK ALIGNMENT -->
+    <div id="page-alignment" class="page light-canvas">
+      <div class="container page-content">
+        <div class="page-header">
+          <h1 class="page-title ink">Kiểm tra Brand Alignment</h1>
+          <p class="page-subtitle ink-muted">AI đánh giá và tối ưu nội dung theo đúng thương hiệu của bạn</p>
+        </div>
+        <div class="alignment-layout">
+          <div class="card light-card">
+            <h3 class="card-title ink">Nội dung cần kiểm tra</h3>
+            <textarea class="text-input light textarea" id="alignDraft" rows="8"
+              placeholder="Dán nội dung bạn muốn kiểm tra vào đây..."></textarea>
+            <button class="btn-primary mt-md" onclick="checkAlignment()">🎯 Kiểm tra ngay</button>
+          </div>
+          <div id="alignResult" class="alignment-result hidden"></div>
+        </div>
+      </div>
     </div>
-    <p class="footer-copy">© 2026 SocialSense · AI-Powered Social Content Platform</p>
-    <div class="footer-links">
-      <a href="#" class="footer-link">Điều khoản</a>
-      <a href="#" class="footer-link">Bảo mật</a>
-      <a href="#" class="footer-link">Hỗ trợ</a>
+
+    <!-- ADMIN -->
+    <div id="page-admin" class="page">
+      <div class="container page-content">
+        <div class="page-header">
+          <h1 class="page-title">Admin Panel</h1>
+        </div>
+        <div class="admin-tabs">
+          <button class="tab-btn active" onclick="switchAdminTab('dashboard', this)">📊 Dashboard</button>
+          <button class="tab-btn" onclick="switchAdminTab('users', this)">👥 Users</button>
+          <button class="tab-btn" onclick="switchAdminTab('apikeys', this)">🔑 API Keys</button>
+        </div>
+
+        <!-- Dashboard -->
+        <div id="admin-dashboard" class="admin-panel">
+          <div id="dashboardStats" class="stats-grid"></div>
+          <div class="chart-section">
+            <h3 class="section-subtitle">Hoạt động 7 ngày qua</h3>
+            <div id="activityChart" class="activity-chart"></div>
+          </div>
+        </div>
+
+        <!-- Users -->
+        <div id="admin-users" class="admin-panel hidden">
+          <div class="admin-toolbar">
+            <input type="text" class="search-input" id="userSearch" placeholder="🔍 Tìm user..." oninput="searchUsers()" />
+            <button class="btn-primary btn-sm" onclick="showCreateUserModal()">+ Tạo user</button>
+          </div>
+          <div id="usersTable" class="data-table-wrap"></div>
+          <div id="usersPagination" class="pagination"></div>
+        </div>
+
+        <!-- API Keys -->
+        <div id="admin-apikeys" class="admin-panel hidden">
+          <div class="admin-toolbar">
+            <button class="btn-primary btn-sm" onclick="showAddKeyModal()">+ Thêm API Key</button>
+            <button class="btn-secondary-dark btn-sm" onclick="reloadKeyPool()">🔄 Reload Pool</button>
+          </div>
+          <div id="apiKeysTable" class="data-table-wrap"></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- ── FOOTER ── -->
+  <footer class="footer-light">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <div class="wordmark">◈ SocialSense</div>
+          <p class="footer-desc">AI Content Platform — Tạo nội dung đỉnh cao bằng sức mạnh AI</p>
+        </div>
+        <div class="footer-col">
+          <h4 class="footer-heading">Sản phẩm</h4>
+          <a href="#" class="footer-link" onclick="showPage('generate')">Tạo nội dung</a>
+          <a href="#" class="footer-link" onclick="showPage('trends')">Xu hướng</a>
+          <a href="#" class="footer-link" onclick="showPage('knowledge')">Knowledge Base</a>
+        </div>
+        <div class="footer-col">
+          <h4 class="footer-heading">Tài khoản</h4>
+          <a href="#" class="footer-link" onclick="showPage('persona')">Persona</a>
+          <a href="#" class="footer-link" onclick="showPage('history')">Lịch sử</a>
+          <a href="#" class="footer-link" onclick="showPage('alignment')">Brand Check</a>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <span class="muted">© 2026 SocialSense. All rights reserved.</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ── MODALS ── -->
+  <div id="modalOverlay" class="modal-overlay hidden" onclick="closeModal()">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <div id="modalContent"></div>
     </div>
   </div>
-</footer>
 
-<script src="app.js"></script>
+  <!-- ── TOAST ── -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="app.js"></script>
 </body>
 </html>

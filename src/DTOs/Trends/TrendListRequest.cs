@@ -6,5 +6,5 @@ public class TrendListRequest
 
     public int PageSize { get; set; } = 20;
 
-    public Guid? TagId { get; set; }
+    public int? TagId { get; set; }
 }

@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SocialSense.DTOs.Content;
 using SocialSense.Filters;
@@ -7,6 +9,7 @@ namespace SocialSense.Controllers;
 
 [ApiController]
 [Route("content")]
+[Authorize]
 public class ContentController : ControllerBase
 {
     private static readonly HashSet<string> AllowedLanguages = new(StringComparer.OrdinalIgnoreCase) { "vi", "en" };
@@ -23,12 +26,12 @@ public class ContentController : ControllerBase
     [TypeFilter(typeof(QuotaCheckFilter))]
     public async Task<IActionResult> Generate([FromBody] GenerateContentRequest request, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(request.UserId))
-        {
-            return BadRequest(new { code = "CONTENT_USERID_REQUIRED", message = "userId is required." });
-        }
+        // Lấy UserId từ JWT claim
+        var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userIdStr) || !int.TryParse(userIdStr, out var userId))
+            return Unauthorized(new { code = "AUTH_INVALID_TOKEN" });
 
-        // TrendId is now optional. If null or empty, the service will run Smart Trend Matching.
+        request.UserId = userId;
 
         if (request.OutputCount < 1 || request.OutputCount > 3)
         {
@@ -45,6 +48,11 @@ public class ContentController : ControllerBase
             return BadRequest(new { code = "CONTENT_PLATFORM_INVALID", message = "Target platforms must not contain null/empty and items must be <= 60 chars." });
         }
 
+        if (request.UserInstruction != null && request.UserInstruction.Length > 1000)
+        {
+            return BadRequest(new { code = "CONTENT_INSTRUCTION_TOO_LONG", message = "userInstruction must be <= 1000 characters." });
+        }
+
         var response = await _service.GenerateAsync(request, ct);
         if (response == null)
         {
@@ -57,10 +65,12 @@ public class ContentController : ControllerBase
     [HttpPost("check-alignment")]
     public async Task<IActionResult> CheckBrandAlignment([FromBody] CheckBrandAlignmentRequest request, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(request.UserId))
-        {
-            return BadRequest(new { code = "CONTENT_USERID_REQUIRED", message = "userId is required." });
-        }
+        // Lấy UserId từ JWT claim
+        var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userIdStr) || !int.TryParse(userIdStr, out var userId))
+            return Unauthorized(new { code = "AUTH_INVALID_TOKEN" });
+
+        request.UserId = userId;
 
         if (string.IsNullOrWhiteSpace(request.DraftContent) || request.DraftContent.Length < 10)
         {
@@ -78,15 +88,13 @@ public class ContentController : ControllerBase
 
     [HttpGet("history")]
     public async Task<IActionResult> GetHistory(
-        [FromQuery] string userId,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 10,
         CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(userId))
-        {
-            return BadRequest(new { code = "HISTORY_USERID_REQUIRED", message = "userId is required." });
-        }
+        var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userIdStr) || !int.TryParse(userIdStr, out var userId))
+            return Unauthorized(new { code = "AUTH_INVALID_TOKEN" });
 
         if (page < 1)
         {
@@ -104,7 +112,7 @@ public class ContentController : ControllerBase
 
     [HttpPut("history/{id}/edit")]
     public async Task<IActionResult> EditHistory(
-        [FromRoute] Guid id,
+        [FromRoute] int id,
         [FromBody] EditHistoryContentRequest request,
         CancellationToken ct)
     {

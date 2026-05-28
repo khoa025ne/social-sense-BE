@@ -1,17 +1,17 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace SocialSense.Models;
 
 public class ContentHistory
 {
     [Key]
-    public Guid Id { get; set; }
+    [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
+    public int Id { get; set; }
 
-    [Required]
-    [MaxLength(64)]
-    public string UserId { get; set; } = string.Empty;
+    public int UserId { get; set; }
 
-    public Guid? OriginalTrendId { get; set; }
+    public int? OriginalTrendId { get; set; }
 
     [Required]
     public string GeneratedContent { get; set; } = string.Empty;

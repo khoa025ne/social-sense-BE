@@ -1,15 +1,15 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace SocialSense.Models;
 
 public class UserContext
 {
     [Key]
-    public Guid Id { get; set; }
+    [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
+    public int Id { get; set; }
 
-    [Required]
-    [MaxLength(64)]
-    public string UserId { get; set; } = string.Empty;
+    public int UserId { get; set; }
 
     [Required]
     [MaxLength(2)]

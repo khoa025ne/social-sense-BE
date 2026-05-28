@@ -1,519 +1,530 @@
 /* ═══════════════════════════════════════════════════════════
-   SocialSense Frontend — app.js
-   API Base: https://localhost:7149
-═══════════════════════════════════════════════════════════ */
+   SOCIALSENSE — Frontend App
+   ═══════════════════════════════════════════════════════════ */
 
-const API = 'https://localhost:7149';
+const API = 'http://localhost:5280';
 
-// ── State ──────────────────────────────────────────────────
-const state = {
+// ── STATE ──────────────────────────────────────────────────
+let state = {
   token: localStorage.getItem('ss_token') || null,
-  userId: localStorage.getItem('ss_userId') || null,
-  displayName: localStorage.getItem('ss_name') || null,
-  hasContext: localStorage.getItem('ss_hasContext') === 'true',
+  user:  JSON.parse(localStorage.getItem('ss_user') || 'null'),
+  mode:  'TrendBased',
+  platforms: ['Facebook'],
   outputCount: 1,
-  currentPage: 'login',
-  trendsData: [],
+  trendsPage: 1,
   historyPage: 1,
-  historyTotal: 0,
-  activeTagFilter: null,
+  usersPage: 1,
 };
 
-// ── API Helper ─────────────────────────────────────────────
+// ── API HELPER ─────────────────────────────────────────────
 async function api(method, path, body = null, isForm = false) {
   const headers = {};
   if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
   if (body && !isForm) headers['Content-Type'] = 'application/json';
 
-  const opts = { method, headers };
-  if (body) opts.body = isForm ? body : JSON.stringify(body);
+  const res = await fetch(`${API}${path}`, {
+    method,
+    headers,
+    body: isForm ? body : (body ? JSON.stringify(body) : null),
+  });
 
-  const res = await fetch(API + path, opts);
-  if (res.status === 204) return null;
-
-  let data;
-  try { data = await res.json(); } catch { data = null; }
-
-  if (!res.ok) {
-    const msg = data?.message || data?.code || `HTTP ${res.status}`;
-    throw new Error(msg);
-  }
-  return data;
+  if (res.status === 401) { logout(); return null; }
+  const text = await res.text();
+  try { return { ok: res.ok, status: res.status, data: JSON.parse(text) }; }
+  catch { return { ok: res.ok, status: res.status, data: text }; }
 }
 
-// ── Toast ──────────────────────────────────────────────────
-function showToast(msg, type = '') {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = `toast show ${type}`;
-  setTimeout(() => { t.className = 'toast'; }, 3500);
+// ── TOAST ──────────────────────────────────────────────────
+function toast(msg, type = 'info') {
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.textContent = msg;
+  document.getElementById('toastContainer').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
 }
 
-// ── Page Router ────────────────────────────────────────────
+// ── PAGE ROUTER ────────────────────────────────────────────
 function showPage(name) {
-  // Guard: nếu chưa login
-  if (!state.token && !['login'].includes(name)) {
-    showPage('login'); return;
-  }
-  // Guard: nếu chưa có context
-  if (state.token && !state.hasContext && name !== 'onboarding') {
-    showPage('onboarding'); return;
-  }
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const page = document.getElementById(`page-${name}`);
+  if (!page) return;
+  page.classList.add('active');
 
-  // Ẩn tất cả pages
-  document.querySelectorAll('.page').forEach(p => {
-    p.style.display = 'none'; p.classList.remove('active');
-  });
+  // Light canvas pages
+  const lightPages = ['login', 'register', 'persona', 'alignment'];
+  document.body.className = lightPages.includes(name) ? 'light-canvas' : 'dark-canvas';
 
-  const target = document.getElementById(`page-${name}`);
-  if (target) { target.style.display = 'block'; target.classList.add('active'); }
+  // Nav style
+  document.getElementById('topNav').style.background =
+    lightPages.includes(name) ? 'var(--canvas-light)' : 'var(--canvas-dark)';
+  document.getElementById('topNav').style.borderBottomColor =
+    lightPages.includes(name) ? 'var(--hairline-light)' : 'var(--hairline-dark)';
 
-  // Update nav active state
-  document.querySelectorAll('.nav-link').forEach(l => {
-    l.classList.toggle('active', l.dataset.page === name);
-  });
+  // Page-specific init
+  if (name === 'trends')    loadTrends();
+  if (name === 'history')   loadHistory();
+  if (name === 'generate')  initGeneratePage();
+  if (name === 'admin')     initAdmin();
+  if (name === 'persona')   loadPersona();
 
-  state.currentPage = name;
-
-  // Lazy load data
-  if (name === 'dashboard') loadDashboard();
-  if (name === 'trends') loadTrends();
-  if (name === 'history') loadHistory(1);
-  if (name === 'generate') loadTrendsForSelect();
-}
-
-// ── Auth ───────────────────────────────────────────────────
-function switchAuthTab(tab) {
-  document.getElementById('loginForm').style.display = tab === 'login' ? 'block' : 'none';
-  document.getElementById('registerForm').style.display = tab === 'register' ? 'block' : 'none';
-  document.getElementById('tabLogin').classList.toggle('active', tab === 'login');
-  document.getElementById('tabRegister').classList.toggle('active', tab === 'register');
-}
-
-async function handleLogin(e) {
-  e.preventDefault();
-  const btn = document.getElementById('loginBtn');
-  const errEl = document.getElementById('loginError');
-  errEl.textContent = '';
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>Đang đăng nhập...';
-
-  try {
-    const data = await api('POST', '/auth/login', {
-      email: document.getElementById('loginEmail').value.trim(),
-      password: document.getElementById('loginPassword').value,
-    });
-    saveAuth(data);
-    updateNavAuth();
-    showPage(data.hasContext ? 'dashboard' : 'onboarding');
-    showToast('Đăng nhập thành công!', 'success');
-  } catch (err) {
-    errEl.textContent = err.message;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Đăng nhập';
-  }
-}
-
-async function handleRegister(e) {
-  e.preventDefault();
-  const btn = document.getElementById('registerBtn');
-  const errEl = document.getElementById('registerError');
-  errEl.textContent = '';
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>Đang tạo tài khoản...';
-
-  try {
-    await api('POST', '/auth/register', {
-      email: document.getElementById('regEmail').value.trim(),
-      password: document.getElementById('regPassword').value,
-      displayName: document.getElementById('regName').value.trim() || undefined,
-    });
-    showToast('Tạo tài khoản thành công! Đang đăng nhập...', 'success');
-    // Auto login
-    const data = await api('POST', '/auth/login', {
-      email: document.getElementById('regEmail').value.trim(),
-      password: document.getElementById('regPassword').value,
-    });
-    saveAuth(data);
-    updateNavAuth();
-    showPage('onboarding');
-  } catch (err) {
-    errEl.textContent = err.message;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Tạo tài khoản';
-  }
-}
-
-function saveAuth(data) {
-  state.token = data.accessToken;
-  state.userId = null; // will be decoded from JWT
-  state.displayName = data.displayName;
-  state.hasContext = data.hasContext;
-  localStorage.setItem('ss_token', data.accessToken);
-  localStorage.setItem('ss_name', data.displayName || '');
-  localStorage.setItem('ss_hasContext', data.hasContext ? 'true' : 'false');
-  // Decode userId from JWT
-  try {
-    const payload = JSON.parse(atob(data.accessToken.split('.')[1]));
-    state.userId = payload['http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier']
-      || payload.sub || payload.nameid || payload.userId;
-    localStorage.setItem('ss_userId', state.userId);
-  } catch {}
-}
-
-function logout() {
-  state.token = null; state.userId = null;
-  state.displayName = null; state.hasContext = false;
-  localStorage.removeItem('ss_token');
-  localStorage.removeItem('ss_userId');
-  localStorage.removeItem('ss_name');
-  localStorage.removeItem('ss_hasContext');
-  updateNavAuth();
-  showPage('login');
-  showToast('Đã đăng xuất');
-}
-
-function updateNavAuth() {
-  const loggedIn = !!state.token;
-  document.getElementById('btnLogin').style.display = loggedIn ? 'none' : 'inline-flex';
-  document.getElementById('btnLogout').style.display = loggedIn ? 'inline-flex' : 'none';
-  document.getElementById('quotaBadge').style.display = loggedIn ? 'flex' : 'none';
-  if (loggedIn && state.displayName) {
-    document.getElementById('heroName').textContent = state.displayName;
-  }
+  window.scrollTo(0, 0);
 }
 
 function toggleMenu() {
   document.getElementById('navLinks').classList.toggle('open');
 }
 
-// ── Onboarding ─────────────────────────────────────────────
-async function handleOnboarding(e) {
+// ── AUTH ───────────────────────────────────────────────────
+async function handleLogin(e) {
   e.preventDefault();
-  const btn = document.getElementById('onboardBtn');
-  const errEl = document.getElementById('onboardError');
-  errEl.textContent = '';
-  btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span>AI đang phân tích...';
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true; btn.textContent = 'Đang đăng nhập...';
+  document.getElementById('loginError').classList.add('hidden');
 
-  const answers = [
-    document.getElementById('q1').value.trim(),
-    document.getElementById('q2').value.trim(),
-    document.getElementById('q3').value.trim(),
-    document.getElementById('q4').value.trim(),
-    document.getElementById('q5').value.trim(),
-  ].filter(Boolean);
+  const res = await api('POST', '/auth/login', {
+    email: document.getElementById('loginEmail').value,
+    password: document.getElementById('loginPassword').value,
+  });
 
-  const lang = document.querySelector('input[name="lang"]:checked')?.value || 'vi';
+  btn.disabled = false; btn.textContent = 'Đăng nhập';
 
-  try {
-    await api('POST', '/context/onboarding', {
-      userId: state.userId,
-      answers,
-      language: lang,
+  if (!res || !res.ok) {
+    const err = document.getElementById('loginError');
+    err.textContent = res?.data?.message || 'Email hoặc mật khẩu không đúng';
+    err.classList.remove('hidden');
+    return;
+  }
+
+  state.token = res.data.accessToken;
+  state.user  = { email: res.data.email, displayName: res.data.displayName, hasContext: res.data.hasContext };
+  localStorage.setItem('ss_token', state.token);
+  localStorage.setItem('ss_user', JSON.stringify(state.user));
+
+  updateNavAuth();
+  toast('Đăng nhập thành công!', 'success');
+  showPage(res.data.hasContext ? 'generate' : 'persona');
+}
+
+async function handleRegister(e) {
+  e.preventDefault();
+  const btn = document.getElementById('registerBtn');
+  btn.disabled = true; btn.textContent = 'Đang tạo tài khoản...';
+  document.getElementById('registerError').classList.add('hidden');
+  document.getElementById('registerSuccess').classList.add('hidden');
+
+  const res = await api('POST', '/auth/register', {
+    displayName: document.getElementById('regName').value,
+    email: document.getElementById('regEmail').value,
+    password: document.getElementById('regPassword').value,
+  });
+
+  btn.disabled = false; btn.textContent = 'Tạo tài khoản';
+
+  if (!res || !res.ok) {
+    const err = document.getElementById('registerError');
+    err.textContent = res?.data?.message || 'Đăng ký thất bại';
+    err.classList.remove('hidden');
+    return;
+  }
+
+  document.getElementById('registerSuccess').textContent = 'Tạo tài khoản thành công! Đang chuyển đến đăng nhập...';
+  document.getElementById('registerSuccess').classList.remove('hidden');
+  setTimeout(() => showPage('login'), 1500);
+}
+
+function logout() {
+  state.token = null; state.user = null;
+  localStorage.removeItem('ss_token');
+  localStorage.removeItem('ss_user');
+  updateNavAuth();
+  showPage('home');
+  toast('Đã đăng xuất');
+}
+
+function updateNavAuth() {
+  const isAuth = !!state.token;
+  document.getElementById('navGuest').classList.toggle('hidden', isAuth);
+  document.getElementById('navUser').classList.toggle('hidden', !isAuth);
+  if (isAuth && state.user) {
+    document.getElementById('navUserName').textContent = state.user.displayName || state.user.email;
+  }
+  // Show admin link if admin (check after login)
+  checkAdminAccess();
+}
+
+async function checkAdminAccess() {
+  if (!state.token) return;
+  const res = await api('GET', '/admin/dashboard');
+  if (res && res.ok) {
+    document.querySelectorAll('.admin-link').forEach(el => el.classList.remove('hidden'));
+  }
+}
+
+async function refreshQuota() {
+  if (!state.token || !state.user) return;
+  // Get quota from admin users endpoint or persona
+  const res = await api('GET', '/context/persona');
+  if (res && res.ok) {
+    // quota shown via admin endpoint
+  }
+}
+
+// ── GENERATE CONTENT ───────────────────────────────────────
+function setMode(mode) {
+  state.mode = mode;
+  document.getElementById('modeTrendBtn').classList.toggle('active', mode === 'TrendBased');
+  document.getElementById('modePersonaBtn').classList.toggle('active', mode === 'PersonaDriven');
+  document.getElementById('modeHint').textContent = mode === 'TrendBased'
+    ? 'AI chọn trend phù hợp nhất với persona của bạn'
+    : 'AI đọc sâu persona, tự suy luận ngành nghề và áp dụng công thức tâm lý';
+}
+
+function togglePlatform(el, platform) {
+  el.classList.toggle('active');
+  if (el.classList.contains('active')) {
+    if (!state.platforms.includes(platform)) state.platforms.push(platform);
+  } else {
+    state.platforms = state.platforms.filter(p => p !== platform);
+  }
+}
+
+function setCount(n, el) {
+  state.outputCount = n;
+  document.querySelectorAll('.count-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+}
+
+async function initGeneratePage() {
+  // Load persona preview
+  if (!state.token) return;
+  const res = await api('GET', '/context/persona');
+  if (res && res.ok) renderPersonaPreview(res.data);
+
+  // Instruction char count
+  const instr = document.getElementById('genInstruction');
+  if (instr) {
+    instr.addEventListener('input', () => {
+      document.getElementById('instrCount').textContent = instr.value.length;
     });
-    state.hasContext = true;
-    localStorage.setItem('ss_hasContext', 'true');
-    showToast('Brand Persona đã được tạo!', 'success');
-    showPage('dashboard');
-  } catch (err) {
-    errEl.textContent = err.message;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Phân tích & Tạo Brand Persona ✦';
   }
 }
 
-// ── Dashboard ──────────────────────────────────────────────
-async function loadDashboard() {
-  // Load persona
-  try {
-    const persona = await api('GET', `/context/persona?userId=${state.userId}`);
-    renderPersona(persona);
-  } catch {}
-
-  // Load history count
-  try {
-    const hist = await api('GET', `/content/history?userId=${state.userId}&page=1&pageSize=1`);
-    document.getElementById('statContent').textContent = hist?.total ?? '—';
-  } catch {}
-
-  // Load trends count
-  try {
-    const trends = await api('GET', '/trends?page=1&pageSize=1');
-    document.getElementById('statTrends').textContent = trends?.total ?? '—';
-  } catch {}
-
-  // Load quota from user info (decoded from JWT or stored)
-  updateQuotaDisplay();
+function renderPersonaPreview(p) {
+  const el = document.getElementById('personaPreview');
+  if (!p) return;
+  el.innerHTML = `
+    <div class="persona-preview-item"><strong>Chức danh:</strong> ${p.jobTitle || '—'}</div>
+    <div class="persona-preview-item"><strong>Tone:</strong> ${p.toneOfVoice || '—'}</div>
+    <div class="persona-preview-item"><strong>Nền tảng:</strong> ${(p.platformPreferences || []).join(', ') || '—'}</div>
+    <div class="persona-preview-item"><strong>Đối tượng:</strong> ${(p.targetAudience || []).slice(0,2).join(', ') || '—'}</div>
+  `;
 }
 
-function renderPersona(p) {
-  if (!p) { document.getElementById('personaCard').innerHTML = '<div class="persona-loading">Chưa có persona. <a href="#" class="btn-text-link" onclick="showPage(\'onboarding\')">Thiết lập ngay →</a></div>'; return; }
-  const tags = (arr) => (arr || []).map(t => `<span class="persona-tag">${t}</span>`).join('');
-  document.getElementById('personaCard').innerHTML = `
-    <div class="persona-grid">
-      <div class="persona-field"><span class="persona-key">Lĩnh vực</span><span class="persona-val">${p.jobTitle || '—'}</span></div>
-      <div class="persona-field"><span class="persona-key">Tone of Voice</span><span class="persona-val">${p.toneOfVoice || '—'}</span></div>
-      <div class="persona-field"><span class="persona-key">Ngôn ngữ</span><span class="persona-val">${p.language === 'vi' ? '🇻🇳 Tiếng Việt' : '🇺🇸 English'}</span></div>
-      <div class="persona-field"><span class="persona-key">Nền tảng</span><div class="persona-tags">${tags(p.platformPreferences) || '<span class="persona-val muted-text">Chưa thiết lập</span>'}</div></div>
-      <div class="persona-field"><span class="persona-key">Đối tượng</span><div class="persona-tags">${tags(p.targetAudience) || '<span class="persona-val muted-text">Chưa thiết lập</span>'}</div></div>
-      <div class="persona-field"><span class="persona-key">Hạn chế</span><div class="persona-tags">${tags(p.negativeConstraints) || '<span class="persona-val muted-text">Không có</span>'}</div></div>
+async function generateContent() {
+  if (!state.token) { showPage('login'); return; }
+  if (state.platforms.length === 0) { toast('Chọn ít nhất 1 nền tảng', 'error'); return; }
+
+  const btn = document.getElementById('generateBtn');
+  const loading = document.getElementById('generateLoading');
+  const results = document.getElementById('generateResults');
+  const empty = document.getElementById('generateEmpty');
+
+  btn.disabled = true; btn.textContent = '⏳ Đang tạo...';
+  loading.classList.remove('hidden');
+  results.innerHTML = '';
+  empty.classList.add('hidden');
+
+  const instruction = document.getElementById('genInstruction').value.trim();
+  const body = {
+    userId: state.user?.email || '',  // will be overridden by JWT claim
+    outputCount: state.outputCount,
+    language: document.getElementById('genLanguage').value,
+    targetPlatforms: state.platforms,
+    generateImage: false,
+    mode: state.mode,
+    userInstruction: instruction || null,
+  };
+
+  // Get userId from a profile call first
+  const profileRes = await api('GET', '/context/persona');
+  if (profileRes && profileRes.ok) {
+    // userId comes from JWT — just pass any non-empty string, server uses JWT claim
+  }
+
+  // We need actual userId — get from admin or store at login
+  if (!state.userId) {
+    // Try to get from admin users or use email as fallback
+    body.userId = state.user?.email || 'unknown';
+  } else {
+    body.userId = state.userId;
+  }
+
+  const res = await api('POST', '/content/generate', body);
+
+  btn.disabled = false; btn.textContent = '⚡ Tạo nội dung ngay';
+  loading.classList.add('hidden');
+
+  if (!res || !res.ok) {
+    const msg = res?.data?.message || res?.data?.errors?.request?.[0] || 'Tạo nội dung thất bại';
+    toast(msg, 'error');
+    empty.classList.remove('hidden');
+    return;
+  }
+
+  renderGenerateResults(res.data);
+}
+
+function renderGenerateResults(data) {
+  const container = document.getElementById('generateResults');
+  const items = data.items || [];
+
+  if (items.length === 0) {
+    document.getElementById('generateEmpty').classList.remove('hidden');
+    return;
+  }
+
+  let html = '';
+  if (data.smartMatchReason) {
+    html += `<div class="result-smart-match"><strong>🎯 Smart Match:</strong> ${escHtml(data.smartMatchReason)}</div>`;
+  }
+
+  items.forEach((item, i) => {
+    const platformIcon = { Facebook:'📘', Instagram:'📸', TikTok:'🎵', Zalo:'💬', LinkedIn:'💼', Twitter:'🐦' }[item.platform] || '📱';
+    html += `
+    <div class="result-card">
+      <div class="result-card-header">
+        <span class="result-platform">${platformIcon} ${escHtml(item.platform)}</span>
+        <div class="result-actions">
+          <button class="btn-secondary-dark btn-sm" onclick="copyContent(${i})">📋 Copy</button>
+          <button class="btn-secondary-dark btn-sm" onclick="editContent(${i})">✏️ Sửa</button>
+        </div>
+      </div>
+      <div class="result-card-body" id="resultBody${i}">
+        <div class="result-hook">${escHtml(item.hook)}</div>
+        <div class="result-body">${escHtml(item.body)}</div>
+        <div class="result-cta">👉 ${escHtml(item.cta)}</div>
+        <div class="result-hashtags">${(item.hashtags||[]).map(h=>`<span class="hashtag">#${escHtml(h)}</span>`).join('')}</div>
+        <div class="result-meta">
+          <span class="result-meta-item"><strong>⏰</strong> ${escHtml(item.bestTimeToPost||'')}</span>
+        </div>
+      </div>
     </div>`;
+  });
+
+  // Store for copy/edit
+  window._lastResults = items;
+  container.innerHTML = html;
 }
 
-function updateQuotaDisplay() {
-  const badge = document.getElementById('quotaBadge');
-  const text = document.getElementById('quotaText');
-  if (badge && text) {
-    badge.style.display = 'flex';
-    text.textContent = 'quota';
-  }
+function copyContent(i) {
+  const item = window._lastResults?.[i];
+  if (!item) return;
+  const text = `${item.hook}\n\n${item.body}\n\n${item.cta}\n\n${(item.hashtags||[]).map(h=>'#'+h).join(' ')}`;
+  navigator.clipboard.writeText(text).then(() => toast('Đã copy!', 'success'));
 }
 
-// ── Trends ─────────────────────────────────────────────────
+function editContent(i) {
+  const item = window._lastResults?.[i];
+  if (!item) return;
+  document.getElementById('modalContent').innerHTML = `
+    <h3 class="modal-title">✏️ Chỉnh sửa nội dung</h3>
+    <div class="form-group">
+      <label class="form-label">Hook</label>
+      <input type="text" class="text-input" id="editHook" value="${escAttr(item.hook)}" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Nội dung</label>
+      <textarea class="text-input textarea edit-textarea" id="editBody">${escHtml(item.body)}</textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">CTA</label>
+      <input type="text" class="text-input" id="editCta" value="${escAttr(item.cta)}" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary-dark" onclick="closeModal()">Huỷ</button>
+      <button class="btn-primary" onclick="copyEdited()">📋 Copy bản đã sửa</button>
+    </div>
+  `;
+  document.getElementById('modalOverlay').classList.remove('hidden');
+}
+
+function copyEdited() {
+  const hook = document.getElementById('editHook').value;
+  const body = document.getElementById('editBody').value;
+  const cta  = document.getElementById('editCta').value;
+  navigator.clipboard.writeText(`${hook}\n\n${body}\n\n${cta}`).then(() => {
+    toast('Đã copy bản đã sửa!', 'success');
+    closeModal();
+  });
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.add('hidden');
+}
+
+// ── TRENDS ─────────────────────────────────────────────────
+let allTrends = [];
+
 async function loadTrends() {
-  document.getElementById('trendsGrid').innerHTML = '<div class="loading-state"><span class="spinner"></span>Đang tải xu hướng...</div>';
-  try {
-    const [trendsRes, tagsRes] = await Promise.all([
-      api('GET', '/trends?page=1&pageSize=50'),
-      api('GET', '/trends/tags'),
-    ]);
-    state.trendsData = trendsRes?.items || trendsRes?.data || [];
-    renderTagFilters(tagsRes || []);
-    renderTrends(state.trendsData);
-  } catch (err) {
-    document.getElementById('trendsGrid').innerHTML = `<div class="loading-state">Lỗi tải xu hướng: ${err.message}</div>`;
-  }
-}
+  const grid = document.getElementById('trendsGrid');
+  grid.innerHTML = '<div class="loading-state"><div class="spinner"></div></div>';
 
-function renderTagFilters(tags) {
-  const el = document.getElementById('tagFilters');
-  el.innerHTML = `<button class="tag-filter-btn active" onclick="filterByTag(null, this)">Tất cả</button>` +
-    tags.slice(0, 10).map(t => `<button class="tag-filter-btn" onclick="filterByTag('${t.name || t}', this)">${t.name || t}</button>`).join('');
-}
+  const sort = document.getElementById('trendSort')?.value || 'hot';
+  const res = await api('GET', `/trends?page=${state.trendsPage}&pageSize=12&sortBy=${sort}`);
 
-function filterByTag(tag, btn) {
-  state.activeTagFilter = tag;
-  document.querySelectorAll('.tag-filter-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  filterTrends();
+  if (!res || !res.ok) { grid.innerHTML = '<p class="muted">Không thể tải xu hướng</p>'; return; }
+
+  allTrends = res.data.items || res.data.data || res.data || [];
+  renderTrends(allTrends);
+  renderPagination('trendsPagination', res.data.page || 1, res.data.totalPages || 1, (p) => {
+    state.trendsPage = p; loadTrends();
+  });
 }
 
 function filterTrends() {
   const q = document.getElementById('trendSearch').value.toLowerCase();
-  const filtered = state.trendsData.filter(t => {
-    const matchQ = !q || t.title?.toLowerCase().includes(q) || t.summary?.toLowerCase().includes(q);
-    const matchTag = !state.activeTagFilter || (t.tags || []).some(tag => (tag.name || tag) === state.activeTagFilter);
-    return matchQ && matchTag;
-  });
+  const filtered = allTrends.filter(t => t.title?.toLowerCase().includes(q) || t.summary?.toLowerCase().includes(q));
   renderTrends(filtered);
 }
 
 function renderTrends(trends) {
-  const el = document.getElementById('trendsGrid');
-  if (!trends.length) { el.innerHTML = '<div class="loading-state">Không tìm thấy xu hướng nào</div>'; return; }
-  el.innerHTML = trends.map(t => {
-    const hotClass = `hot-${t.hotLevel || 3}`;
-    const hotLabel = ['', '🌱', '📊', '🔥', '⚡', '💥'][t.hotLevel || 3];
-    const sentClass = `sentiment-${t.sentiment || 'neutral'}`;
-    const sentLabel = { positive: 'Tích cực', negative: 'Tiêu cực', neutral: 'Trung lập' }[t.sentiment] || 'Trung lập';
-    const tags = (t.tags || []).slice(0, 3).map(tag => `<span class="trend-tag">${tag.name || tag}</span>`).join('');
-    return `
-    <div class="trend-card" onclick="useTrend('${t.id}', '${escHtml(t.title)}')">
-      <div class="trend-card-top">
-        <span class="trend-title">${escHtml(t.title)}</span>
-        <span class="hot-badge ${hotClass}">${hotLabel} ${t.hotLevel || 3}</span>
+  const grid = document.getElementById('trendsGrid');
+  if (!trends.length) { grid.innerHTML = '<p class="muted">Không có xu hướng nào</p>'; return; }
+
+  grid.innerHTML = trends.map(t => `
+    <div class="trend-card" onclick="generateFromTrend('${t.id}')">
+      <div class="trend-card-header">
+        <span class="trend-hot">🔥 Hot ${t.hotLevel || 0}</span>
+        <span class="muted" style="font-size:11px">${formatDate(t.createdAt)}</span>
       </div>
-      <p class="trend-summary">${escHtml(t.summary || '')}</p>
+      <div class="trend-title">${escHtml(t.title)}</div>
+      <div class="trend-summary">${escHtml(t.summary || '')}</div>
       <div class="trend-footer">
-        <div class="trend-tags">${tags}</div>
-        <div style="display:flex;gap:6px;align-items:center">
-          <span class="sentiment-badge ${sentClass}">${sentLabel}</span>
-          <button class="trend-use-btn" onclick="event.stopPropagation();useTrend('${t.id}','${escHtml(t.title)}')">Dùng →</button>
+        <button class="btn-primary btn-sm" onclick="event.stopPropagation();generateFromTrend('${t.id}')">⚡ Tạo content</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function generateFromTrend(trendId) {
+  if (!state.token) { showPage('login'); return; }
+  // Pre-fill trendId and switch to generate page
+  window._pendingTrendId = trendId;
+  showPage('generate');
+  toast('Đã chọn trend — nhấn Tạo nội dung để tiếp tục', 'info');
+}
+
+// ── HISTORY ────────────────────────────────────────────────
+async function loadHistory() {
+  if (!state.token) return;
+  const list = document.getElementById('historyList');
+  list.innerHTML = '<div class="loading-state"><div class="spinner"></div></div>';
+
+  // Need userId — get from stored state
+  const userId = state.userId || state.user?.email || '';
+  const res = await api('GET', `/content/history?userId=${encodeURIComponent(userId)}&page=${state.historyPage}&pageSize=10`);
+
+  if (!res || !res.ok) { list.innerHTML = '<p class="muted">Không thể tải lịch sử</p>'; return; }
+
+  const items = res.data.items || res.data.data || [];
+  if (!items.length) { list.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><p class="empty-text">Chưa có lịch sử nội dung</p></div>'; return; }
+
+  list.innerHTML = items.map(h => {
+    let contentItems = [];
+    try { contentItems = JSON.parse(h.contentJson || '[]'); } catch {}
+    const first = contentItems[0] || {};
+    return `
+    <div class="history-card">
+      <div class="history-card-header">
+        <span class="history-platform">${escHtml(first.platform || 'General')}</span>
+        <span class="history-date">${formatDate(h.createdAt)}</span>
+      </div>
+      <div class="history-card-body">
+        <div class="history-hook">${escHtml(first.hook || '—')}</div>
+        <div class="history-body">${escHtml(first.body || '')}</div>
+        <div style="margin-top:var(--sp-sm);display:flex;gap:var(--sp-xs)">
+          <button class="btn-secondary-dark btn-sm" onclick="copyHistoryItem('${h.id}', ${JSON.stringify(contentItems).replace(/"/g,'&quot;')})">📋 Copy</button>
+          <button class="btn-secondary-dark btn-sm" onclick="editHistoryItem('${h.id}', '${escAttr(first.body||'')}')">✏️ Sửa</button>
         </div>
       </div>
     </div>`;
   }).join('');
+
+  renderPagination('historyPagination', res.data.page || 1, res.data.totalPages || 1, (p) => {
+    state.historyPage = p; loadHistory();
+  });
 }
 
-function useTrend(id, title) {
-  showPage('generate');
-  setTimeout(() => {
-    const sel = document.getElementById('trendSelect');
-    if (sel) {
-      // Thêm option nếu chưa có
-      let opt = sel.querySelector(`option[value="${id}"]`);
-      if (!opt) { opt = new Option(title, id); sel.add(opt); }
-      sel.value = id;
-    }
-    showToast(`Đã chọn: ${title}`, 'success');
-  }, 200);
+function copyHistoryItem(id, items) {
+  const first = items[0] || {};
+  const text = `${first.hook||''}\n\n${first.body||''}\n\n${first.cta||''}\n\n${(first.hashtags||[]).map(h=>'#'+h).join(' ')}`;
+  navigator.clipboard.writeText(text).then(() => toast('Đã copy!', 'success'));
 }
 
-async function loadTrendsForSelect() {
-  try {
-    const res = await api('GET', '/trends?page=1&pageSize=20');
-    const trends = res?.items || res?.data || [];
-    const sel = document.getElementById('trendSelect');
-    // Giữ option đầu tiên (AI tự chọn)
-    while (sel.options.length > 1) sel.remove(1);
-    trends.forEach(t => sel.add(new Option(`🔥 ${t.title}`, t.id)));
-  } catch {}
+function editHistoryItem(id, currentBody) {
+  document.getElementById('modalContent').innerHTML = `
+    <h3 class="modal-title">✏️ Chỉnh sửa nội dung</h3>
+    <div class="form-group">
+      <label class="form-label">Nội dung</label>
+      <textarea class="text-input textarea edit-textarea" id="histEditBody">${escHtml(currentBody)}</textarea>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary-dark" onclick="closeModal()">Huỷ</button>
+      <button class="btn-primary" onclick="saveHistoryEdit('${id}')">💾 Lưu</button>
+    </div>
+  `;
+  document.getElementById('modalOverlay').classList.remove('hidden');
 }
 
-// ── Generate Content ───────────────────────────────────────
-async function handleGenerate() {
-  const btn = document.getElementById('generateBtn');
-  const btnText = document.getElementById('generateBtnText');
-  const resultsEl = document.getElementById('genResults');
-
-  btn.disabled = true;
-  btnText.innerHTML = '<span class="spinner"></span>AI đang tạo nội dung...';
-  resultsEl.innerHTML = '<div class="results-empty"><span class="spinner" style="font-size:32px"></span><p>AI đang phân tích xu hướng và tạo nội dung...</p></div>';
-
-  const trendId = document.getElementById('trendSelect').value || null;
-  const lang = document.querySelector('input[name="genLang"]:checked')?.value || 'vi';
-  const platforms = [...document.querySelectorAll('.chip.active')].map(c => c.dataset.platform);
-
-  try {
-    const data = await api('POST', '/content/generate', {
-      userId: state.userId,
-      trendId: trendId || undefined,
-      outputCount: state.outputCount,
-      language: lang,
-      targetPlatforms: platforms.length ? platforms : undefined,
-      generateImage: false,
-    });
-
-    if (!data || !data.items?.length) {
-      resultsEl.innerHTML = '<div class="results-empty"><span class="empty-icon">⚠️</span><p>Không có kết quả. Thử lại sau.</p></div>';
-      return;
-    }
-
-    let html = '';
-    // Smart match banner
-    if (data.smartMatchReason) {
-      html += `<div class="smart-match-banner">
-        <strong>✦ AI đã chọn:</strong> ${escHtml(data.selectedTrendTitle || '')}
-        <br/><span style="color:var(--muted);font-size:12px;margin-top:4px;display:block">${escHtml(data.smartMatchReason)}</span>
-      </div>`;
-    }
-    // Content cards
-    data.items.forEach((item, i) => {
-      html += renderContentCard(item, i);
-    });
-    resultsEl.innerHTML = html;
-    showToast('Tạo nội dung thành công!', 'success');
-    // Update quota
-    loadDashboard();
-  } catch (err) {
-    resultsEl.innerHTML = `<div class="results-empty"><span class="empty-icon">⚠️</span><p>Lỗi: ${escHtml(err.message)}</p></div>`;
-    showToast(err.message, 'error');
-  } finally {
-    btn.disabled = false;
-    btnText.textContent = '✦ Tạo nội dung';
+async function saveHistoryEdit(id) {
+  const body = document.getElementById('histEditBody').value;
+  const res = await api('PUT', `/content/history/${id}/edit`, { body });
+  if (res && res.ok) {
+    toast('Đã lưu!', 'success');
+    closeModal();
+    loadHistory();
+  } else {
+    toast('Lưu thất bại', 'error');
   }
 }
 
-function renderContentCard(item, idx) {
-  const hashtags = (item.hashtags || []).map(h => `<span class="hashtag">#${h}</span>`).join('');
-  const id = `card-${idx}-${Date.now()}`;
-  return `
-  <div class="result-card" id="${id}">
-    <div class="result-card-header">
-      <span class="result-platform-badge">📱 ${escHtml(item.platform || 'General')}</span>
-      <div class="result-actions">
-        <button class="result-action-btn" onclick="copyContent('${id}')">📋 Copy</button>
-        <button class="result-action-btn" onclick="copyFullPost('${id}')">📄 Copy bài đầy đủ</button>
-      </div>
-    </div>
-    <div class="result-body">
-      <div>
-        <div class="result-section-label">Hook</div>
-        <div class="result-hook" data-hook="${idx}">${escHtml(item.hook || '')}</div>
-      </div>
-      <div>
-        <div class="result-section-label">Nội dung</div>
-        <div class="result-content" data-body="${idx}">${escHtml(item.body || '')}</div>
-      </div>
-      <div>
-        <div class="result-section-label">Call to Action</div>
-        <div class="result-cta">${escHtml(item.cta || '')}</div>
-      </div>
-      ${hashtags ? `<div><div class="result-section-label">Hashtags</div><div class="result-hashtags">${hashtags}</div></div>` : ''}
-      <div class="result-meta">
-        <div class="result-meta-item">⏰ <span>${escHtml(item.bestTimeToPost || '')}</span></div>
-      </div>
-    </div>
-  </div>`;
+// ── KNOWLEDGE BASE ─────────────────────────────────────────
+function switchKnowledgeTab(tab, el) {
+  document.querySelectorAll('.knowledge-panel').forEach(p => p.classList.add('hidden'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`kb-${tab}`).classList.remove('hidden');
+  el.classList.add('active');
 }
 
-function copyContent(cardId) {
-  const card = document.getElementById(cardId);
-  if (!card) return;
-  const hook = card.querySelector('[data-hook]')?.textContent || '';
-  const body = card.querySelector('[data-body]')?.textContent || '';
-  navigator.clipboard.writeText(`${hook}\n\n${body}`).then(() => showToast('Đã copy!', 'success'));
-}
+async function ingestManual() {
+  const title   = document.getElementById('kbManualTitle').value.trim();
+  const content = document.getElementById('kbManualContent').value.trim();
+  if (!title || !content) { toast('Nhập đầy đủ tiêu đề và nội dung', 'error'); return; }
 
-function copyFullPost(cardId) {
-  const card = document.getElementById(cardId);
-  if (!card) return;
-  const hook = card.querySelector('[data-hook]')?.textContent || '';
-  const body = card.querySelector('[data-body]')?.textContent || '';
-  const cta = card.querySelector('.result-cta')?.textContent || '';
-  const tags = [...card.querySelectorAll('.hashtag')].map(h => h.textContent).join(' ');
-  navigator.clipboard.writeText(`${hook}\n\n${body}\n\n${cta}\n\n${tags}`).then(() => showToast('Đã copy bài đầy đủ!', 'success'));
-}
-
-function changeCount(delta) {
-  state.outputCount = Math.max(1, Math.min(3, state.outputCount + delta));
-  document.getElementById('outputCount').textContent = state.outputCount;
-}
-
-function togglePlatform(btn) {
-  btn.classList.toggle('active');
-}
-
-// ── Knowledge ──────────────────────────────────────────────
-function switchKnowledgeTab(tab, btn) {
-  document.querySelectorAll('.knowledge-panel').forEach(p => p.style.display = 'none');
-  document.getElementById(`kPanel-${tab}`).style.display = 'block';
-  document.querySelectorAll('.knowledge-tabs .tab-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-}
-
-async function handleKnowledgeManual() {
-  const title = document.getElementById('kManualTitle').value.trim();
-  const content = document.getElementById('kManualContent').value.trim();
-  const errEl = document.getElementById('kManualError');
-  errEl.textContent = '';
-  if (!title || !content) { errEl.textContent = 'Vui lòng nhập tiêu đề và nội dung.'; return; }
-  try {
-    await api('POST', '/knowledge/manual', { title, rawContent: content });
-    showKnowledgeSuccess('Đã thêm vào Knowledge Base thành công!');
-    document.getElementById('kManualTitle').value = '';
-    document.getElementById('kManualContent').value = '';
-  } catch (err) {
-    errEl.textContent = err.message;
+  const res = await api('POST', '/knowledge/manual', { title, rawContent: content });
+  const el = document.getElementById('kbManualResult');
+  if (res && res.ok) {
+    el.innerHTML = `<div class="alert-success">✅ Đã lưu: <strong>${escHtml(res.data.title)}</strong></div>`;
+    document.getElementById('kbManualTitle').value = '';
+    document.getElementById('kbManualContent').value = '';
+  } else {
+    el.innerHTML = `<div class="alert-error">❌ ${escHtml(res?.data?.message || 'Lỗi khi lưu')}</div>`;
   }
 }
 
-async function handleKnowledgeScrape() {
-  const url = document.getElementById('kScrapeUrl').value.trim();
-  const errEl = document.getElementById('kScrapeError');
-  errEl.textContent = '';
-  if (!url) { errEl.textContent = 'Vui lòng nhập URL.'; return; }
-  try {
-    showToast('Đang crawl URL...');
-    await api('POST', '/knowledge/scrape', { targetUrl: url });
-    showKnowledgeSuccess('Đã crawl và thêm vào Knowledge Base!');
-    document.getElementById('kScrapeUrl').value = '';
-  } catch (err) {
-    errEl.textContent = err.message;
+async function ingestScrape() {
+  const url = document.getElementById('kbScrapeUrl').value.trim();
+  if (!url) { toast('Nhập URL', 'error'); return; }
+
+  const el = document.getElementById('kbScrapeResult');
+  el.innerHTML = '<div class="loading-state" style="padding:var(--sp-md)"><div class="spinner"></div><span class="loading-text">Đang crawl...</span></div>';
+
+  const res = await api('POST', '/knowledge/scrape', { url });
+  if (res && res.ok) {
+    el.innerHTML = `<div class="alert-success">✅ Đã crawl: <strong>${escHtml(res.data.title)}</strong></div>`;
+    document.getElementById('kbScrapeUrl').value = '';
+  } else {
+    el.innerHTML = `<div class="alert-error">❌ ${escHtml(res?.data?.message || 'Không thể crawl URL này')}</div>`;
   }
 }
 
@@ -529,229 +540,376 @@ function handleFileDrop(e) {
 }
 
 async function uploadFile(file) {
-  const errEl = document.getElementById('kFileError');
-  errEl.textContent = '';
-  const formData = new FormData();
-  formData.append('file', file);
-  try {
-    showToast('Đang upload file...');
-    await api('POST', '/knowledge/upload-file', formData, true);
-    showKnowledgeSuccess(`File "${file.name}" đã được xử lý thành công!`);
-  } catch (err) {
-    errEl.textContent = err.message;
+  const el = document.getElementById('kbUploadResult');
+  el.innerHTML = '<div class="loading-state" style="padding:var(--sp-md)"><div class="spinner"></div><span class="loading-text">Đang upload...</span></div>';
+
+  const form = new FormData();
+  form.append('file', file);
+
+  const res = await api('POST', '/knowledge/upload-file', form, true);
+  if (res && res.ok) {
+    el.innerHTML = `<div class="alert-success">✅ Đã upload: <strong>${escHtml(res.data.fileName)}</strong></div>`;
+  } else {
+    el.innerHTML = `<div class="alert-error">❌ ${escHtml(res?.data?.message || 'Upload thất bại')}</div>`;
   }
 }
 
-function showKnowledgeSuccess(msg) {
-  const el = document.getElementById('kSuccess');
-  el.textContent = '✅ ' + msg;
-  el.style.display = 'block';
-  showToast(msg, 'success');
-  setTimeout(() => { el.style.display = 'none'; }, 5000);
+// ── PERSONA ────────────────────────────────────────────────
+async function loadPersona() {
+  if (!state.token) return;
+  const res = await api('GET', '/context/persona');
+  if (!res || !res.ok) return;
+  const p = res.data;
+  if (!p) return;
+
+  document.getElementById('pJobTitle').value  = p.jobTitle || '';
+  document.getElementById('pTone').value       = p.toneOfVoice || '';
+  document.getElementById('pLanguage').value   = p.language || 'vi';
+  document.getElementById('pPlatforms').value  = (p.platformPreferences || []).join(', ');
+  document.getElementById('pAudience').value   = (p.targetAudience || []).join('\n');
+  document.getElementById('pFormats').value    = (p.contentFormats || []).join('\n');
+  document.getElementById('pNegatives').value  = (p.negativeConstraints || []).join('\n');
 }
 
-// ── History ────────────────────────────────────────────────
-async function loadHistory(page) {
-  state.historyPage = page;
-  const el = document.getElementById('historyList');
-  el.innerHTML = '<div class="loading-state"><span class="spinner"></span>Đang tải lịch sử...</div>';
-  try {
-    const data = await api('GET', `/content/history?userId=${state.userId}&page=${page}&pageSize=10`);
-    const items = data?.items || data?.data || [];
-    state.historyTotal = data?.total || 0;
+async function savePersona() {
+  if (!state.token) { showPage('login'); return; }
 
-    if (!items.length) {
-      el.innerHTML = '<div class="loading-state">Chưa có nội dung nào. <a href="#" class="btn-text-link" onclick="showPage(\'generate\')">Tạo ngay →</a></div>';
-      return;
-    }
+  const splitLines = v => v.split(/[\n,]/).map(s=>s.trim()).filter(Boolean);
 
-    el.innerHTML = items.map(h => renderHistoryCard(h)).join('');
-    renderHistoryPagination(data?.total || 0, page);
-  } catch (err) {
-    el.innerHTML = `<div class="loading-state">Lỗi: ${escHtml(err.message)}</div>`;
+  const body = {
+    jobTitle:             document.getElementById('pJobTitle').value.trim() || null,
+    toneOfVoice:          document.getElementById('pTone').value.trim() || null,
+    language:             document.getElementById('pLanguage').value,
+    platformPreferences:  splitLines(document.getElementById('pPlatforms').value),
+    targetAudience:       splitLines(document.getElementById('pAudience').value),
+    contentFormats:       splitLines(document.getElementById('pFormats').value),
+    negativeConstraints:  splitLines(document.getElementById('pNegatives').value),
+  };
+
+  const res = await api('PUT', '/context/persona', body);
+  const el = document.getElementById('personaSaveResult');
+  if (res && res.ok) {
+    el.innerHTML = '<div class="alert-success">✅ Đã lưu persona thành công!</div>';
+    toast('Persona đã được cập nhật', 'success');
+    if (state.user) { state.user.hasContext = true; localStorage.setItem('ss_user', JSON.stringify(state.user)); }
+  } else {
+    el.innerHTML = `<div class="alert-error">❌ ${escHtml(res?.data?.message || 'Lưu thất bại')}</div>`;
   }
 }
 
-function renderHistoryCard(h) {
-  let parsedItems = [];
-  try { parsedItems = JSON.parse(h.generatedContent || h.userEditedContent || '[]'); } catch {}
-  if (!Array.isArray(parsedItems)) parsedItems = [];
+// ── BRAND ALIGNMENT ────────────────────────────────────────
+async function checkAlignment() {
+  if (!state.token) { showPage('login'); return; }
+  const draft = document.getElementById('alignDraft').value.trim();
+  if (draft.length < 10) { toast('Nội dung phải ít nhất 10 ký tự', 'error'); return; }
 
-  const date = new Date(h.createdAt).toLocaleString('vi-VN');
-  const editedBadge = h.isEdited ? '<span class="history-edited-badge">✏️ Đã chỉnh sửa</span>' : '';
-  const itemsHtml = parsedItems.map((item, i) => `
-    <div class="history-item">
-      <div class="history-item-platform">📱 ${escHtml(item.platform || 'General')}</div>
-      <div class="history-item-hook">${escHtml(item.hook || '')}</div>
-      <div class="history-item-body">${escHtml((item.body || '').substring(0, 200))}${(item.body || '').length > 200 ? '...' : ''}</div>
-      <div style="margin-top:8px;display:flex;gap:8px">
-        <button class="result-action-btn" onclick="copyHistoryItem('${h.id}', ${i})">📋 Copy</button>
-        <button class="result-action-btn" onclick="editHistoryItem('${h.id}', ${i}, this)">✏️ Sửa</button>
-      </div>
-    </div>`).join('');
+  const resultEl = document.getElementById('alignResult');
+  resultEl.innerHTML = '<div class="loading-state"><div class="spinner"></div><p class="loading-text">AI đang phân tích...</p></div>';
+  resultEl.classList.remove('hidden');
 
-  return `
-  <div class="history-card">
-    <div class="history-card-header" onclick="toggleHistoryCard(this)">
-      <div class="history-meta">
-        <span class="history-date">🕐 ${date}</span>
-        ${editedBadge}
-      </div>
-      <span style="color:var(--muted);font-size:18px">›</span>
+  const userId = state.userId || state.user?.email || '';
+  const res = await api('POST', '/content/check-alignment', { userId, draftContent: draft });
+
+  if (!res || !res.ok) {
+    resultEl.innerHTML = `<div class="alert-error">❌ ${escHtml(res?.data?.message || 'Phân tích thất bại')}</div>`;
+    return;
+  }
+
+  const d = res.data;
+  const scoreClass = d.brandScore >= 75 ? 'score-good' : d.brandScore >= 50 ? 'score-mid' : 'score-bad';
+  resultEl.innerHTML = `
+    <div class="score-display">
+      <div class="score-number ${scoreClass}">${d.brandScore}</div>
+      <div class="score-label">Brand Alignment Score / 100</div>
     </div>
-    <div class="history-body" data-id="${h.id}" data-content='${escAttr(h.generatedContent)}'>
-      <div class="history-items">${itemsHtml || '<p class="muted-text">Không có dữ liệu</p>'}</div>
+    <div class="align-section">
+      <div class="align-section-title">📊 Phân tích</div>
+      <div class="align-section-body">${escHtml(d.analysis)}</div>
     </div>
+    <div class="align-section">
+      <div class="align-section-title">💡 Gợi ý cải thiện</div>
+      <div class="align-section-body">${escHtml(d.suggestions)}</div>
+    </div>
+    <div class="align-section">
+      <div class="align-section-title">✨ Bản đã tối ưu</div>
+      <div class="refined-content">${escHtml(d.refinedContent)}</div>
+      <button class="btn-primary btn-sm mt-sm" onclick="navigator.clipboard.writeText(${JSON.stringify(d.refinedContent)}).then(()=>toast('Đã copy!','success'))">📋 Copy bản tối ưu</button>
+    </div>
+  `;
+}
+
+// ── ADMIN ──────────────────────────────────────────────────
+function switchAdminTab(tab, el) {
+  document.querySelectorAll('.admin-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.admin-tabs .tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById(`admin-${tab}`).classList.add('active');
+  el.classList.add('active');
+  if (tab === 'users')   loadAdminUsers();
+  if (tab === 'apikeys') loadApiKeys();
+}
+
+async function initAdmin() {
+  document.querySelectorAll('.admin-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('admin-dashboard').classList.add('active');
+  await loadDashboard();
+}
+
+async function loadDashboard() {
+  const res = await api('GET', '/admin/dashboard');
+  if (!res || !res.ok) return;
+  const d = res.data;
+
+  document.getElementById('dashboardStats').innerHTML = `
+    <div class="stat-box"><div class="stat-box-value">${d.totalUsers}</div><div class="stat-box-label">Tổng users</div><div class="stat-box-sub stat-up">▲ ${d.activeUsers} active</div></div>
+    <div class="stat-box"><div class="stat-box-value">${d.totalContentGenerated}</div><div class="stat-box-label">Nội dung đã tạo</div></div>
+    <div class="stat-box"><div class="stat-box-value">${d.totalKnowledgeItems}</div><div class="stat-box-label">Knowledge items</div></div>
+    <div class="stat-box"><div class="stat-box-value">${d.totalTrends}</div><div class="stat-box-label">Xu hướng</div></div>
+    <div class="stat-box"><div class="stat-box-value">${d.activeApiKeys}</div><div class="stat-box-label">API Keys active</div><div class="stat-box-sub ${d.coolingDownApiKeys > 0 ? 'stat-down' : 'stat-up'}">${d.coolingDownApiKeys} cooling</div></div>
+  `;
+
+  // Activity chart
+  const days = d.last7DaysContent || [];
+  const maxContent = Math.max(...days.map(x => x.contentGenerated), 1);
+  const maxUsers   = Math.max(...days.map(x => x.newUsers), 1);
+  document.getElementById('activityChart').innerHTML = days.map(day => `
+    <div class="chart-bar-group">
+      <div class="chart-bar content" style="height:${Math.round(day.contentGenerated/maxContent*80)}px" title="Content: ${day.contentGenerated}"></div>
+      <div class="chart-bar users"   style="height:${Math.round(day.newUsers/maxUsers*40)}px"   title="Users: ${day.newUsers}"></div>
+      <div class="chart-label">${day.date?.slice(5)}</div>
+    </div>
+  `).join('') + `<div style="font-size:11px;color:var(--muted);align-self:flex-end;padding-bottom:20px">
+    <span style="color:var(--primary)">■</span> Content &nbsp;
+    <span style="color:var(--accent-turquoise)">■</span> Users
   </div>`;
 }
 
-function toggleHistoryCard(header) {
-  const body = header.nextElementSibling;
-  body.classList.toggle('open');
-  header.querySelector('span:last-child').textContent = body.classList.contains('open') ? '⌄' : '›';
+async function loadAdminUsers() {
+  const search = document.getElementById('userSearch')?.value || '';
+  const res = await api('GET', `/admin/users?page=${state.usersPage}&pageSize=15&search=${encodeURIComponent(search)}`);
+  if (!res || !res.ok) return;
+
+  const { data, total, totalPages } = res.data;
+  document.getElementById('usersTable').innerHTML = `
+    <table class="data-table">
+      <thead><tr>
+        <th>Email</th><th>Tên</th><th>Trạng thái</th><th>Quota</th><th>Roles</th><th>Content</th><th>Hành động</th>
+      </tr></thead>
+      <tbody>${data.map(u => `
+        <tr>
+          <td>${escHtml(u.email)}</td>
+          <td>${escHtml(u.displayName||'')}</td>
+          <td><span class="badge ${u.isActive?'badge-active':'badge-inactive'}">${u.isActive?'Active':'Inactive'}</span></td>
+          <td><span style="font-family:var(--font-plex)">${u.remainingQuota}/${u.dailyQuotaLimit}</span></td>
+          <td>${(u.roles||[]).map(r=>`<span class="badge badge-admin">${r}</span>`).join(' ')}</td>
+          <td><span style="font-family:var(--font-plex)">${u.totalContentGenerated}</span></td>
+          <td>
+            <button class="btn-secondary-dark btn-sm" onclick="resetUserQuota('${u.id}')">Reset quota</button>
+            ${u.isActive
+              ? `<button class="btn-secondary-dark btn-sm" onclick="deactivateUser('${u.id}')">Vô hiệu</button>`
+              : `<button class="btn-secondary-dark btn-sm" onclick="restoreUser('${u.id}')">Kích hoạt</button>`}
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+
+  renderPagination('usersPagination', res.data.page, totalPages, (p) => { state.usersPage = p; loadAdminUsers(); });
 }
 
-function copyHistoryItem(histId, itemIdx) {
-  const body = document.querySelector(`.history-body[data-id="${histId}"]`);
-  if (!body) return;
-  try {
-    const items = JSON.parse(body.dataset.content || '[]');
-    const item = items[itemIdx];
-    if (item) {
-      navigator.clipboard.writeText(`${item.hook}\n\n${item.body}\n\n${item.cta}`).then(() => showToast('Đã copy!', 'success'));
-    }
-  } catch {}
+function searchUsers() { state.usersPage = 1; loadAdminUsers(); }
+
+async function resetUserQuota(id) {
+  const res = await api('POST', `/admin/users/${id}/reset-quota`);
+  if (res && res.ok) { toast('Đã reset quota', 'success'); loadAdminUsers(); }
+}
+async function deactivateUser(id) {
+  if (!confirm('Vô hiệu hóa user này?')) return;
+  const res = await api('DELETE', `/admin/users/${id}`);
+  if (res && res.ok) { toast('Đã vô hiệu hóa', 'success'); loadAdminUsers(); }
+}
+async function restoreUser(id) {
+  const res = await api('POST', `/admin/users/${id}/restore`);
+  if (res && res.ok) { toast('Đã kích hoạt lại', 'success'); loadAdminUsers(); }
 }
 
-function editHistoryItem(histId, itemIdx, btn) {
-  const body = document.querySelector(`.history-body[data-id="${histId}"]`);
-  if (!body) return;
-  const item = body.querySelectorAll('.history-item')[itemIdx];
-  if (!item) return;
+async function loadApiKeys() {
+  const res = await api('GET', '/admin/api-keys');
+  if (!res || !res.ok) return;
+  const keys = res.data;
 
-  const existing = item.querySelector('.edit-area');
-  if (existing) { existing.remove(); return; }
+  document.getElementById('apiKeysTable').innerHTML = `
+    <table class="data-table">
+      <thead><tr><th>Label</th><th>Provider</th><th>Key (suffix)</th><th>Trạng thái</th><th>Cooldown</th><th>Hành động</th></tr></thead>
+      <tbody>${keys.map(k => `
+        <tr>
+          <td>${escHtml(k.label)}</td>
+          <td><span class="badge badge-admin">${escHtml(k.provider||'')}</span></td>
+          <td><span style="font-family:var(--font-plex);color:var(--muted)">...${escHtml(k.keySuffix)}</span></td>
+          <td><span class="badge ${k.isActive?'badge-active':'badge-inactive'}">${k.isActive?'Active':'Inactive'}</span></td>
+          <td>${k.isInCooldown ? `<span class="stat-down">⏳ ${formatDate(k.cooldownExpiresAt)}</span>` : '<span class="stat-up">✅ OK</span>'}</td>
+          <td>
+            <button class="btn-secondary-dark btn-sm" onclick="deleteApiKey('${k.id}')">🗑 Xóa</button>
+          </td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
 
-  const currentText = item.querySelector('.history-item-body')?.textContent || '';
-  const area = document.createElement('textarea');
-  area.className = 'edit-area';
-  area.rows = 5;
-  area.value = currentText;
-  item.appendChild(area);
+async function reloadKeyPool() {
+  const res = await api('POST', '/admin/api-keys/reload');
+  if (res && res.ok) { toast(`Pool reloaded — ${res.data.activeKeys} keys active`, 'success'); loadApiKeys(); }
+}
 
-  const saveBtn = document.createElement('button');
-  saveBtn.className = 'btn-primary';
-  saveBtn.style.marginTop = '8px';
-  saveBtn.textContent = 'Lưu chỉnh sửa';
-  saveBtn.onclick = async () => {
-    try {
-      await api('PUT', `/content/history/${histId}/edit`, { body: area.value });
-      item.querySelector('.history-item-body').textContent = area.value;
-      area.remove(); saveBtn.remove();
-      showToast('Đã lưu chỉnh sửa!', 'success');
-    } catch (err) { showToast(err.message, 'error'); }
+async function deleteApiKey(id) {
+  if (!confirm('Xóa API key này?')) return;
+  const res = await api('DELETE', `/admin/api-keys/${id}`);
+  if (res && res.ok) { toast('Đã xóa key', 'success'); loadApiKeys(); }
+}
+
+function showAddKeyModal() {
+  document.getElementById('modalContent').innerHTML = `
+    <h3 class="modal-title">🔑 Thêm API Key</h3>
+    <div class="form-group">
+      <label class="form-label">Label</label>
+      <input type="text" class="text-input" id="newKeyLabel" placeholder="VD: OpenRouter-Key2" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Key Value</label>
+      <input type="text" class="text-input" id="newKeyValue" placeholder="sk-or-v1-..." />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Notes (tuỳ chọn)</label>
+      <input type="text" class="text-input" id="newKeyNotes" placeholder="openrouter / groq / openai" />
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary-dark" onclick="closeModal()">Huỷ</button>
+      <button class="btn-primary" onclick="addApiKey()">💾 Thêm</button>
+    </div>
+  `;
+  document.getElementById('modalOverlay').classList.remove('hidden');
+}
+
+async function addApiKey() {
+  const label = document.getElementById('newKeyLabel').value.trim();
+  const keyValue = document.getElementById('newKeyValue').value.trim();
+  const notes = document.getElementById('newKeyNotes').value.trim();
+  if (!label || !keyValue) { toast('Nhập đầy đủ label và key', 'error'); return; }
+
+  const res = await api('POST', '/admin/api-keys', { label, keyValue, notes });
+  if (res && res.ok) {
+    toast('Đã thêm API key', 'success');
+    closeModal();
+    loadApiKeys();
+  } else {
+    toast(res?.data?.message || 'Thêm key thất bại', 'error');
+  }
+}
+
+function showCreateUserModal() {
+  document.getElementById('modalContent').innerHTML = `
+    <h3 class="modal-title">👤 Tạo User mới</h3>
+    <div class="form-group">
+      <label class="form-label">Email</label>
+      <input type="email" class="text-input" id="newUserEmail" placeholder="user@example.com" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Tên hiển thị</label>
+      <input type="text" class="text-input" id="newUserName" placeholder="Nguyễn Văn A" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Mật khẩu</label>
+      <input type="password" class="text-input" id="newUserPass" placeholder="••••••••" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Daily Quota</label>
+      <input type="number" class="text-input" id="newUserQuota" value="10" min="1" max="1000" />
+    </div>
+    <div class="form-group" style="display:flex;align-items:center;gap:var(--sp-sm)">
+      <input type="checkbox" id="newUserAdmin" />
+      <label class="form-label" style="margin:0">Cấp quyền Admin</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-secondary-dark" onclick="closeModal()">Huỷ</button>
+      <button class="btn-primary" onclick="createAdminUser()">💾 Tạo</button>
+    </div>
+  `;
+  document.getElementById('modalOverlay').classList.remove('hidden');
+}
+
+async function createAdminUser() {
+  const body = {
+    email: document.getElementById('newUserEmail').value.trim(),
+    displayName: document.getElementById('newUserName').value.trim(),
+    password: document.getElementById('newUserPass').value,
+    dailyQuotaLimit: parseInt(document.getElementById('newUserQuota').value) || 10,
+    isAdmin: document.getElementById('newUserAdmin').checked,
   };
-  item.appendChild(saveBtn);
+  if (!body.email || !body.password) { toast('Nhập đầy đủ email và mật khẩu', 'error'); return; }
+
+  const res = await api('POST', '/admin/users', body);
+  if (res && res.ok) {
+    toast('Đã tạo user', 'success');
+    closeModal();
+    loadAdminUsers();
+  } else {
+    toast(res?.data?.message || 'Tạo user thất bại', 'error');
+  }
 }
 
-function renderHistoryPagination(total, current) {
-  const totalPages = Math.ceil(total / 10);
-  if (totalPages <= 1) { document.getElementById('historyPagination').innerHTML = ''; return; }
+// ── PAGINATION ─────────────────────────────────────────────
+function renderPagination(containerId, current, total, onPage) {
+  const el = document.getElementById(containerId);
+  if (!el || total <= 1) { if(el) el.innerHTML=''; return; }
+
   let html = '';
-  for (let i = 1; i <= totalPages; i++) {
-    html += `<button class="page-btn ${i === current ? 'active' : ''}" onclick="loadHistory(${i})">${i}</button>`;
+  if (current > 1) html += `<button class="page-btn" onclick="(${onPage})(${current-1})">‹</button>`;
+  for (let i = Math.max(1, current-2); i <= Math.min(total, current+2); i++) {
+    html += `<button class="page-btn ${i===current?'active':''}" onclick="(${onPage})(${i})">${i}</button>`;
   }
-  document.getElementById('historyPagination').innerHTML = html;
+  if (current < total) html += `<button class="page-btn" onclick="(${onPage})(${current+1})">›</button>`;
+  el.innerHTML = html;
 }
 
-// ── Brand Alignment ────────────────────────────────────────
-async function handleAlignment() {
-  const draft = document.getElementById('draftContent').value.trim();
-  const errEl = document.getElementById('alignmentError');
-  const btn = document.getElementById('alignmentBtn');
-  const btnText = document.getElementById('alignmentBtnText');
-  const resultEl = document.getElementById('alignmentResult');
-  errEl.textContent = '';
-
-  if (!draft || draft.length < 10) { errEl.textContent = 'Nội dung nháp phải có ít nhất 10 ký tự.'; return; }
-
-  btn.disabled = true;
-  btnText.innerHTML = '<span class="spinner"></span>AI đang phân tích...';
-  resultEl.innerHTML = '<div class="results-empty"><span class="spinner"></span><p>Đang phân tích brand alignment...</p></div>';
-
-  try {
-    const data = await api('POST', '/content/check-alignment', {
-      userId: state.userId,
-      draftContent: draft,
-    });
-
-    const score = data.brandScore || 0;
-    const scoreColor = score >= 75 ? 'var(--trading-up)' : score >= 50 ? 'var(--primary)' : 'var(--trading-down)';
-    const circumference = 2 * Math.PI * 40;
-    const offset = circumference - (score / 100) * circumference;
-
-    resultEl.innerHTML = `
-      <div class="score-card">
-        <div class="score-ring">
-          <svg width="100" height="100" viewBox="0 0 100 100">
-            <circle class="score-ring-bg" cx="50" cy="50" r="40"/>
-            <circle class="score-ring-fill" cx="50" cy="50" r="40"
-              stroke="${scoreColor}"
-              stroke-dasharray="${circumference}"
-              stroke-dashoffset="${offset}"/>
-          </svg>
-          <div class="score-number" style="color:${scoreColor}">${score}</div>
-        </div>
-        <div class="score-label">Brand Alignment Score</div>
-      </div>
-      <div class="analysis-card">
-        <div class="analysis-section">
-          <div class="analysis-title">📊 Phân tích</div>
-          <div class="analysis-text">${escHtml(data.analysis || '')}</div>
-        </div>
-        <div class="analysis-section">
-          <div class="analysis-title">💡 Đề xuất cải thiện</div>
-          <div class="analysis-text">${escHtml(data.suggestions || '')}</div>
-        </div>
-        <div class="analysis-section">
-          <div class="analysis-title">✦ Bài viết đã được cải thiện</div>
-          <div class="refined-content">${escHtml(data.refinedContent || '')}</div>
-          <button class="result-action-btn" style="margin-top:8px" onclick="navigator.clipboard.writeText(${JSON.stringify(data.refinedContent || '')}).then(()=>showToast('Đã copy!','success'))">📋 Copy bài viết</button>
-        </div>
-      </div>`;
-    showToast('Phân tích hoàn tất!', 'success');
-  } catch (err) {
-    resultEl.innerHTML = `<div class="results-empty"><span class="empty-icon">⚠️</span><p>Lỗi: ${escHtml(err.message)}</p></div>`;
-    errEl.textContent = err.message;
-  } finally {
-    btn.disabled = false;
-    btnText.textContent = '✅ Phân tích Brand Alignment';
-  }
-}
-
-// ── Modal ──────────────────────────────────────────────────
-function closeModal() {
-  document.getElementById('modalOverlay').style.display = 'none';
-}
-
-// ── Helpers ────────────────────────────────────────────────
+// ── UTILS ──────────────────────────────────────────────────
 function escHtml(str) {
-  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 function escAttr(str) {
-  return String(str || '').replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+  if (!str) return '';
+  return String(str).replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+function formatDate(iso) {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString('vi-VN', { day:'2-digit', month:'2-digit', year:'numeric' });
+  } catch { return iso; }
 }
 
-// ── Init ───────────────────────────────────────────────────
-(function init() {
+// ── INIT ───────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
   updateNavAuth();
+  showPage('home');
+
+  // Resolve userId after login by checking admin endpoint
   if (state.token) {
-    if (!state.hasContext) {
-      showPage('onboarding');
-    } else {
-      showPage('dashboard');
-    }
-  } else {
-    showPage('login');
+    api('GET', '/admin/users?pageSize=1').then(res => {
+      if (res && res.ok) {
+        document.querySelectorAll('.admin-link').forEach(el => el.classList.remove('hidden'));
+      }
+    });
+    // Get actual userId from persona endpoint (JWT resolves it server-side)
+    // For content/generate we pass userId from JWT — server uses claim
+    // Store a placeholder that will be overridden by JWT
+    state.userId = state.user?.email || '';
   }
-})();
+});
+
+// Handle nav link active state
+document.querySelectorAll('.nav-link').forEach(link => {
+  link.addEventListener('click', () => {
+    document.querySelectorAll('.nav-link').forEach(l => l.style.color = '');
+    link.style.color = 'var(--primary)';
+    document.getElementById('navLinks').classList.remove('open');
+  });
+});

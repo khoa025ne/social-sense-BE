@@ -1,12 +1,8 @@
-using System.ComponentModel.DataAnnotations;
-
 namespace SocialSense.Models;
 
 public class UserRole
 {
-    [Required]
-    [MaxLength(64)]
-    public string UserId { get; set; } = string.Empty;
+    public int UserId { get; set; }
 
-    public Guid RoleId { get; set; }
+    public int RoleId { get; set; }
 }

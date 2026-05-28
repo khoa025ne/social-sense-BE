@@ -27,18 +27,17 @@ public class ContentHistoryService : IContentHistoryService
         _logger = logger;
     }
 
-    public Task SaveHistoryAsync(string userId, Guid? originalTrendId, string generatedContentJson, CancellationToken ct)
+    public Task SaveHistoryAsync(int userId, int? originalTrendId, string generatedContentJson, CancellationToken ct)
     {
         return SaveHistoryAsync(userId, originalTrendId, generatedContentJson, null, ct);
     }
 
-    public async Task SaveHistoryAsync(string userId, Guid? originalTrendId, string generatedContentJson, string? mediaUrl, CancellationToken ct)
+    public async Task SaveHistoryAsync(int userId, int? originalTrendId, string generatedContentJson, string? mediaUrl, CancellationToken ct)
     {
         try
         {
             var history = new ContentHistory
             {
-                Id = Guid.NewGuid(),
                 UserId = userId,
                 OriginalTrendId = originalTrendId,
                 GeneratedContent = generatedContentJson,
@@ -53,11 +52,11 @@ public class ContentHistoryService : IContentHistoryService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to save content generation history for user {UserId}", userId);
-            throw; // Will be caught and handled at the call site in ContentGeneratorService
+            throw;
         }
     }
 
-    public async Task<PaginatedHistoryResponse> GetHistoryAsync(string userId, int page, int pageSize, CancellationToken ct)
+    public async Task<PaginatedHistoryResponse> GetHistoryAsync(int userId, int page, int pageSize, CancellationToken ct)
     {
         var query = _db.ContentHistories.AsNoTracking().Where(h => h.UserId == userId);
 
@@ -119,7 +118,7 @@ public class ContentHistoryService : IContentHistoryService
         };
     }
 
-    public async Task<bool> EditHistoryAsync(Guid id, EditHistoryContentRequest request, CancellationToken ct)
+    public async Task<bool> EditHistoryAsync(int id, EditHistoryContentRequest request, CancellationToken ct)
     {
         var history = await _db.ContentHistories.FirstOrDefaultAsync(h => h.Id == id, ct);
         if (history == null)

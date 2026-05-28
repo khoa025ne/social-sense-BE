@@ -56,7 +56,6 @@ public class KnowledgeIngestionService : IKnowledgeIngestionService
 
         var item = new KnowledgeItem
         {
-            Id = Guid.NewGuid(),
             Title = request.Title,
             SourceType = "ManualText",
             SourceUrlOrFileName = null,
@@ -127,7 +126,6 @@ public class KnowledgeIngestionService : IKnowledgeIngestionService
 
         var item = new KnowledgeItem
         {
-            Id = Guid.NewGuid(),
             Title = title,
             SourceType = "WebScraper",
             SourceUrlOrFileName = request.TargetUrl,
@@ -178,7 +176,6 @@ public class KnowledgeIngestionService : IKnowledgeIngestionService
 
         var item = new KnowledgeItem
         {
-            Id = Guid.NewGuid(),
             Title = title,
             SourceType = sourceType,
             SourceUrlOrFileName = fileName,
@@ -225,7 +222,6 @@ public class KnowledgeIngestionService : IKnowledgeIngestionService
 
             var chunk = new KnowledgeChunk
             {
-                Id = Guid.NewGuid(),
                 ItemId = item.Id,
                 ChunkText = chunkText,
                 AiSummary = aiOutput.Summary,
@@ -274,26 +270,22 @@ public class KnowledgeIngestionService : IKnowledgeIngestionService
             }
 
             // 4. Update or Create Trend
-            if (!string.IsNullOrWhiteSpace(aiOutput.MatchedTrendId) && Guid.TryParse(aiOutput.MatchedTrendId, out var matchedId))
+            if (!string.IsNullOrWhiteSpace(aiOutput.MatchedTrendId) && int.TryParse(aiOutput.MatchedTrendId, out var matchedId))
             {
                 var existingTrend = await _db.Trends.FirstOrDefaultAsync(t => t.Id == matchedId, ct);
                 if (existingTrend != null)
                 {
-                    // Update trend (Ý 3 & Ý 4)
                     existingTrend.Summary = aiOutput.Summary.Length > 1000 ? aiOutput.Summary.Substring(0, 997) + "..." : aiOutput.Summary;
-                    existingTrend.HotLevel = Math.Min(existingTrend.HotLevel + 1, 5); // Tăng độ nóng
+                    existingTrend.HotLevel = Math.Min(existingTrend.HotLevel + 1, 5);
                     existingTrend.UpdatedAt = DateTime.UtcNow;
-
                     _db.Trends.Update(existingTrend);
                     _logger.LogInformation("Trend '{Title}' (ID: {Id}) updated and HotLevel incremented.", existingTrend.Title, existingTrend.Id);
                 }
             }
             else
             {
-                // Create a new Trend (Ý 1)
                 var newTrend = new Trend
                 {
-                    Id = Guid.NewGuid(),
                     Title = aiOutput.Title.Length > 200 ? aiOutput.Title.Substring(0, 197) + "..." : aiOutput.Title,
                     Summary = aiOutput.Summary.Length > 1000 ? aiOutput.Summary.Substring(0, 997) + "..." : aiOutput.Summary,
                     SourceUrl = item.SourceUrlOrFileName ?? "internal-knowledge-base",
@@ -306,7 +298,6 @@ public class KnowledgeIngestionService : IKnowledgeIngestionService
                 _db.Trends.Add(newTrend);
                 _logger.LogInformation("New Trend '{Title}' created dynamically from KnowledgeItem.", newTrend.Title);
 
-                // Handle Tags
                 if (aiOutput.Tags != null && aiOutput.Tags.Count > 0)
                 {
                     foreach (var tagName in aiOutput.Tags)
@@ -317,19 +308,12 @@ public class KnowledgeIngestionService : IKnowledgeIngestionService
                         {
                             tag = new Tag
                             {
-                                Id = Guid.NewGuid(),
                                 Name = tagName.Length > 60 ? tagName.Substring(0, 60) : tagName,
                                 Slug = slug
                             };
                             _db.Tags.Add(tag);
                         }
-
-                        var trendTag = new TrendTag
-                        {
-                            TrendId = newTrend.Id,
-                            TagId = tag.Id
-                        };
-                        _db.TrendTags.Add(trendTag);
+                        _db.TrendTags.Add(new TrendTag { TrendId = newTrend.Id, TagId = tag.Id });
                     }
                 }
             }
@@ -466,7 +450,6 @@ public class KnowledgeIngestionService : IKnowledgeIngestionService
 
             var item = new KnowledgeItem
             {
-                Id = Guid.NewGuid(),
                 Title = $"Google Trends: {rssItem.Title}",
                 SourceType = "WebScraper",
                 SourceUrlOrFileName = rssItem.SourceUrl,
@@ -607,7 +590,6 @@ public class KnowledgeIngestionService : IKnowledgeIngestionService
 
             var chunk = new KnowledgeChunk
             {
-                Id = Guid.NewGuid(),
                 ItemId = item.Id,
                 ChunkText = chunkText,
                 AiSummary = aiOutput.Summary,
@@ -659,26 +641,22 @@ public class KnowledgeIngestionService : IKnowledgeIngestionService
             }
 
             // 4. Update or Create Trend
-            if (!string.IsNullOrWhiteSpace(aiOutput.MatchedTrendId) && Guid.TryParse(aiOutput.MatchedTrendId, out var matchedId))
+            if (!string.IsNullOrWhiteSpace(aiOutput.MatchedTrendId) && int.TryParse(aiOutput.MatchedTrendId, out var matchedId))
             {
                 var existingTrend = await db.Trends.FirstOrDefaultAsync(t => t.Id == matchedId, ct);
                 if (existingTrend != null)
                 {
-                    // Update trend (Ý 3 & Ý 4)
                     existingTrend.Summary = aiOutput.Summary.Length > 1000 ? aiOutput.Summary.Substring(0, 997) + "..." : aiOutput.Summary;
-                    existingTrend.HotLevel = Math.Min(existingTrend.HotLevel + 1, 5); // Tăng độ nóng
+                    existingTrend.HotLevel = Math.Min(existingTrend.HotLevel + 1, 5);
                     existingTrend.UpdatedAt = DateTime.UtcNow;
-
                     db.Trends.Update(existingTrend);
                     logger.LogInformation("Trend '{Title}' (ID: {Id}) updated and HotLevel incremented.", existingTrend.Title, existingTrend.Id);
                 }
             }
             else
             {
-                // Create a new Trend (Ý 1)
                 var newTrend = new Trend
                 {
-                    Id = Guid.NewGuid(),
                     Title = aiOutput.Title.Length > 200 ? aiOutput.Title.Substring(0, 197) + "..." : aiOutput.Title,
                     Summary = aiOutput.Summary.Length > 1000 ? aiOutput.Summary.Substring(0, 997) + "..." : aiOutput.Summary,
                     SourceUrl = item.SourceUrlOrFileName ?? "internal-knowledge-base",
@@ -691,7 +669,6 @@ public class KnowledgeIngestionService : IKnowledgeIngestionService
                 db.Trends.Add(newTrend);
                 logger.LogInformation("New Trend '{Title}' created dynamically from KnowledgeItem.", newTrend.Title);
 
-                // Handle Tags
                 if (aiOutput.Tags != null && aiOutput.Tags.Count > 0)
                 {
                     foreach (var tagName in aiOutput.Tags)
@@ -702,19 +679,12 @@ public class KnowledgeIngestionService : IKnowledgeIngestionService
                         {
                             tag = new Tag
                             {
-                                Id = Guid.NewGuid(),
                                 Name = tagName.Length > 60 ? tagName.Substring(0, 60) : tagName,
                                 Slug = slug
                             };
                             db.Tags.Add(tag);
                         }
-
-                        var trendTag = new TrendTag
-                        {
-                            TrendId = newTrend.Id,
-                            TagId = tag.Id
-                        };
-                        db.TrendTags.Add(trendTag);
+                        db.TrendTags.Add(new TrendTag { TrendId = newTrend.Id, TagId = tag.Id });
                     }
                 }
             }

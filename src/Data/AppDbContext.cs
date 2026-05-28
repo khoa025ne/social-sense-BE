@@ -41,16 +41,18 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<User>(entity =>
         {
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.HasIndex(x => x.Email).IsUnique();
-            entity.Property(x => x.DailyQuotaLimit).HasDefaultValue(10);
-            entity.Property(x => x.RemainingQuota).HasDefaultValue(10);
-            
-            var isSqlite = Database.ProviderName == "Microsoft.EntityFrameworkCore.Sqlite";
-            entity.Property(x => x.LastQuotaReset).HasDefaultValueSql(isSqlite ? "CURRENT_TIMESTAMP" : "CURRENT_TIMESTAMP(6)");
+            // Store Tier enum as int column, default handled by C# model initializer
+            entity.Property(x => x.Tier).HasConversion<int>();
+            entity.Property(x => x.DailyQuotaLimit).HasDefaultValue(5);
+            entity.Property(x => x.RemainingQuota).HasDefaultValue(5);
+            entity.Property(x => x.LastQuotaReset).HasDefaultValueSql("CURRENT_TIMESTAMP(6)");
         });
 
         modelBuilder.Entity<Role>(entity =>
         {
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.HasIndex(x => x.Name).IsUnique();
         });
 
@@ -62,29 +64,34 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<UserToken>(entity =>
         {
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.HasIndex(x => x.UserId);
             entity.HasIndex(x => x.RefreshToken).IsUnique();
         });
 
         modelBuilder.Entity<ExternalLogin>(entity =>
         {
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.HasIndex(x => x.UserId);
             entity.HasIndex(x => new { x.Provider, x.ProviderKey }).IsUnique();
         });
 
         modelBuilder.Entity<UserContext>(entity =>
         {
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.HasIndex(x => x.UserId);
             entity.HasIndex(x => new { x.UserId, x.Version });
         });
 
         modelBuilder.Entity<Trend>(entity =>
         {
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.HasIndex(x => x.CreatedAt);
         });
 
         modelBuilder.Entity<Tag>(entity =>
         {
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.HasIndex(x => x.Slug).IsUnique();
         });
 
@@ -96,6 +103,7 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<ContentHistory>(entity =>
         {
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.HasIndex(x => x.UserId);
             entity.HasIndex(x => x.CreatedAt);
 
@@ -107,11 +115,13 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<KnowledgeItem>(entity =>
         {
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.HasIndex(x => x.ContentHash).IsUnique();
         });
 
         modelBuilder.Entity<KnowledgeChunk>(entity =>
         {
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.HasIndex(x => x.ItemId);
             entity.HasOne<KnowledgeItem>()
                 .WithMany()
@@ -121,6 +131,7 @@ public class AppDbContext : DbContext
 
         modelBuilder.Entity<ApiKeyConfig>(entity =>
         {
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.HasIndex(x => x.IsActive);
         });
     }

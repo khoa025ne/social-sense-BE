@@ -11,7 +11,12 @@ using SocialSense.Services.Scrapers;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        // Cho phép deserialize enum từ string (vd: "PersonaDriven" thay vì 1)
+        options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    });
 builder.Services.AddEndpointsApiExplorer();
 
 // Configure CORS to allow interface test calls
@@ -87,6 +92,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(connectionString, serverVersion));
 
 builder.Services.AddSingleton<GeminiApiKeyPool>();
+builder.Services.AddScoped<SeedDataService>();
 builder.Services.AddScoped<IContextService, ContextService>();
 builder.Services.AddSingleton<IContextAiExtractor, GeminiContextAiExtractor>();
 
@@ -149,31 +155,26 @@ builder.Services.AddHttpClient<GeminiContextAiExtractor>()
 
 var app = builder.Build();
 
-// ── Seed Admin Role & reload API keys từ DB khi startup ──────────────────────
+// ── Auto-migrate + Seed khi startup ──────────────────────────────────────────
 using (var scope = app.Services.CreateScope())
 {
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var db     = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    var seeder = scope.ServiceProvider.GetRequiredService<SeedDataService>();
 
     try
     {
-        // Seed role Admin nếu chưa có
-        if (!db.Roles.Any(r => r.Name == "Admin"))
-        {
-            db.Roles.Add(new SocialSense.Models.Role
-            {
-                Id = Guid.NewGuid(),
-                Name = "Admin",
-                Description = "Quản trị viên hệ thống",
-                CreatedAt = DateTime.UtcNow
-            });
-            await db.SaveChangesAsync();
-            logger.LogInformation("✅ Admin role seeded.");
-        }
+        // Tự động tạo DB và chạy migration nếu chưa có
+        logger.LogInformation("🔄 Applying database migrations...");
+        await db.Database.MigrateAsync();
+        logger.LogInformation("✅ Database migrations applied.");
+
+        // Seed dữ liệu mẫu nếu DB trống
+        await seeder.SeedAsync();
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Failed to seed Admin role.");
+        logger.LogError(ex, "❌ Failed to migrate/seed database on startup.");
     }
 }
 
@@ -195,6 +196,13 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+
+// POST /admin/seed — Admin only, seed dữ liệu mẫu
+app.MapPost("/admin/seed", async (SeedDataService seeder, CancellationToken ct) =>
+{
+    await seeder.SeedAsync(ct);
+    return Results.Ok(new { message = "Seed completed." });
+}).RequireAuthorization("AdminOnly");
 
 app.MapControllers();
 

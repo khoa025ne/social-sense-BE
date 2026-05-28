@@ -70,10 +70,11 @@ public class GeminiContextAiExtractor : IContextAiExtractor
         var slot = _keyPool.GetNextSlot();
         var baseUrl = GetBaseUrl(slot.Provider);
         var url = $"{baseUrl}/chat/completions";
+        var model = slot.ModelOverride ?? _options.Model;
 
         var body = new
         {
-            model = _options.Model,
+            model,
             messages = new[] { new { role = "user", content = prompt } },
             temperature = _options.Temperature,
             max_tokens = _options.MaxOutputTokens
