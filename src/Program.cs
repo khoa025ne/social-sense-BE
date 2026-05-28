@@ -11,9 +11,6 @@ using SocialSense.Services.Scrapers;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Load secrets file nếu tồn tại (không commit lên git)
-builder.Configuration.AddJsonFile("appsettings.Secrets.json", optional: true, reloadOnChange: true);
-
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
@@ -203,7 +200,18 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors("AllowAll");
 
-app.UseHttpsRedirection();
+// Bypass ngrok browser warning cho webhook (ngrok free plan)
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["ngrok-skip-browser-warning"] = "true";
+    await next();
+});
+
+// Chỉ redirect HTTPS khi không dùng ngrok (production)
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHttpsRedirection();
+}
 
 app.UseAuthentication();
 app.UseAuthorization();

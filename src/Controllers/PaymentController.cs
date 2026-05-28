@@ -239,14 +239,79 @@ public class PaymentController : ControllerBase
     // ── Webhook từ payOS ──────────────────────────────────────────────────────
 
     /// <summary>
+    /// GET /payment/webhook — payOS dùng để kiểm tra endpoint còn sống không.
+    /// Phải trả về 200.
+    /// </summary>
+    [HttpGet("webhook")]
+    public IActionResult WebhookPing()
+    {
+        return Ok(new { code = "00", message = "webhook endpoint is alive" });
+    }
+
+    /// <summary>
+    /// GET /payment/success — payOS redirect user về đây sau khi thanh toán xong.
+    /// </summary>
+    [HttpGet("success")]
+    public IActionResult PaymentSuccess([FromQuery] long? orderCode)
+    {
+        return Ok(new
+        {
+            message = "Thanh toán thành công! Tier của bạn đã được nâng cấp.",
+            orderCode
+        });
+    }
+
+    /// <summary>
+    /// GET /payment/cancel — payOS redirect user về đây khi huỷ thanh toán.
+    /// </summary>
+    [HttpGet("cancel")]
+    public IActionResult PaymentCancel([FromQuery] long? orderCode)
+    {
+        return Ok(new
+        {
+            message = "Bạn đã huỷ thanh toán.",
+            orderCode
+        });
+    }
+
+    /// <summary>
     /// POST /payment/webhook — payOS gọi endpoint này khi có giao dịch.
     /// KHÔNG cần auth — payOS gọi từ server của họ.
-    /// Verify bằng HMAC-SHA256 signature.
     /// </summary>
     [HttpPost("webhook")]
-    public async Task<IActionResult> Webhook([FromBody] PayOsWebhookPayload payload, CancellationToken ct)
+    [IgnoreAntiforgeryToken]
+    public async Task<IActionResult> Webhook(
+        [FromBody] System.Text.Json.JsonElement rawBody,
+        CancellationToken ct)
     {
-        // 1. Verify signature
+        // Log raw body để debug
+        var rawJson = rawBody.GetRawText();
+        _logger.LogInformation("payOS webhook received: {Body}", rawJson);
+
+        PayOsWebhookPayload? payload;
+        try
+        {
+            payload = System.Text.Json.JsonSerializer.Deserialize<PayOsWebhookPayload>(rawJson,
+                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "payOS webhook: failed to deserialize body");
+            return Ok(new { code = "00", message = "acknowledged" });
+        }
+
+        if (payload == null)
+            return Ok(new { code = "00", message = "acknowledged" });
+
+        // payOS gửi request test khi đăng ký webhook — orderCode=123 là dấu hiệu test
+        // Phải trả về 200 để payOS xác nhận endpoint hoạt động
+        if (payload.Data?.OrderCode == 123)
+        {
+            _logger.LogInformation("payOS webhook test request — responding 200 OK");
+            return Ok(new { code = "00", message = "webhook test acknowledged" });
+        }
+
+        // Verify signature cho request thật
         if (!_payOs.VerifyWebhookSignature(payload))
         {
             _logger.LogWarning("payOS webhook: invalid signature. OrderCode={OrderCode}",
@@ -254,7 +319,7 @@ public class PaymentController : ControllerBase
             return BadRequest(new { code = "INVALID_SIGNATURE" });
         }
 
-        // 2. Chỉ xử lý khi success = true và code = "00"
+        // Chỉ xử lý khi success = true và code = "00"
         if (!payload.Success || payload.Code != "00" || payload.Data == null)
         {
             _logger.LogInformation("payOS webhook: non-success event code={Code}", payload.Code);

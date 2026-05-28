@@ -15,6 +15,7 @@ tests/**/obj/
 src/appsettings.json
 src/appsettings.Development.json
 src/appsettings.Secrets.json
+src/secrets.json
 
 # OS
 .DS_Store
