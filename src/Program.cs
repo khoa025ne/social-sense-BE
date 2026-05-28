@@ -11,6 +11,9 @@ using SocialSense.Services.Scrapers;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Load secrets file nếu tồn tại (không commit lên git)
+builder.Configuration.AddJsonFile("appsettings.Secrets.json", optional: true, reloadOnChange: true);
+
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
@@ -114,6 +117,16 @@ builder.Services.Configure<ContentGeneratorOptions>(builder.Configuration.GetSec
 builder.Services.Configure<ImageGeneratorOptions>(builder.Configuration.GetSection("ImageGenerator"));
 builder.Services.Configure<KnowledgeOptions>(builder.Configuration.GetSection("KnowledgeOptions"));
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
+builder.Services.Configure<PayOsOptions>(builder.Configuration.GetSection("PayOs"));
+
+// PayOS HTTP client
+builder.Services.AddHttpClient<IPayOsService, PayOsService>()
+    .ConfigureHttpClient((sp, client) =>
+    {
+        var opts = sp.GetRequiredService<IOptions<PayOsOptions>>().Value;
+        client.BaseAddress = new Uri(opts.BaseUrl.TrimEnd('/') + "/");
+        client.Timeout = TimeSpan.FromSeconds(30);
+    });
 
 builder.Services.AddSingleton<FileParserFactory>();
 builder.Services.AddHttpClient<IWebScraperClient, WebScraperClient>();

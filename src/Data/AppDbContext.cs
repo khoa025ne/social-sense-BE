@@ -35,6 +35,10 @@ public class AppDbContext : DbContext
 
     public DbSet<ApiKeyConfig> ApiKeyConfigs => Set<ApiKeyConfig>();
 
+    public DbSet<Subscription> Subscriptions => Set<Subscription>();
+
+    public DbSet<PaymentOrder> PaymentOrders => Set<PaymentOrder>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -133,6 +137,25 @@ public class AppDbContext : DbContext
         {
             entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.HasIndex(x => x.IsActive);
+        });
+
+        modelBuilder.Entity<Subscription>(entity =>
+        {
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
+            entity.Property(x => x.Tier).HasConversion<int>();
+            entity.Property(x => x.Status).HasConversion<int>();
+            entity.HasIndex(x => x.UserId);
+            entity.HasIndex(x => new { x.UserId, x.Status });
+        });
+
+        modelBuilder.Entity<PaymentOrder>(entity =>
+        {
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
+            entity.Property(x => x.TargetTier).HasConversion<int>();
+            entity.Property(x => x.Status).HasConversion<int>();
+            entity.HasIndex(x => x.UserId);
+            entity.HasIndex(x => x.OrderCode).IsUnique();
+            entity.HasIndex(x => x.Status);
         });
     }
 }
