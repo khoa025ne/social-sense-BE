@@ -25,14 +25,11 @@ public class ContextController : ControllerBase
     [HttpPost("onboarding")]
     public async Task<IActionResult> SubmitOnboarding([FromBody] OnboardingRequest request, CancellationToken ct)
     {
-        if (ControllerContext?.HttpContext?.User?.Identity?.IsAuthenticated == true)
-        {
-            var claimsUserId = ControllerContext.HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (!string.IsNullOrEmpty(claimsUserId))
-            {
-                request.UserId = claimsUserId;
-            }
-        }
+        var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userIdStr) || !int.TryParse(userIdStr, out var userId))
+            return Unauthorized(new { code = "AUTH_INVALID_TOKEN" });
+
+        request.UserId = userId;
 
         if (!AllowedLanguages.Contains(request.Language))
         {
@@ -54,24 +51,13 @@ public class ContextController : ControllerBase
     }
 
     [HttpGet("persona")]
-    public async Task<IActionResult> GetPersona([FromQuery] string? userId, CancellationToken ct)
+    public async Task<IActionResult> GetPersona(CancellationToken ct)
     {
-        var targetUserId = userId;
-        if (ControllerContext?.HttpContext?.User?.Identity?.IsAuthenticated == true)
-        {
-            var claimsUserId = ControllerContext.HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (!string.IsNullOrEmpty(claimsUserId))
-            {
-                targetUserId = claimsUserId;
-            }
-        }
+        var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userIdStr) || !int.TryParse(userIdStr, out var userId))
+            return Unauthorized(new { code = "AUTH_INVALID_TOKEN" });
 
-        if (string.IsNullOrWhiteSpace(targetUserId))
-        {
-            return BadRequest(new { code = "CONTEXT_USERID_REQUIRED", message = "userId is required." });
-        }
-
-        var persona = await _service.GetPersonaAsync(targetUserId, ct);
+        var persona = await _service.GetPersonaAsync(userId, ct);
         if (persona == null)
         {
             return NotFound();
@@ -81,22 +67,11 @@ public class ContextController : ControllerBase
     }
 
     [HttpPut("persona")]
-    public async Task<IActionResult> UpdatePersona([FromQuery] string? userId, [FromBody] UpdatePersonaRequest request, CancellationToken ct)
+    public async Task<IActionResult> UpdatePersona([FromBody] UpdatePersonaRequest request, CancellationToken ct)
     {
-        var targetUserId = userId;
-        if (ControllerContext?.HttpContext?.User?.Identity?.IsAuthenticated == true)
-        {
-            var claimsUserId = ControllerContext.HttpContext.User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
-            if (!string.IsNullOrEmpty(claimsUserId))
-            {
-                targetUserId = claimsUserId;
-            }
-        }
-
-        if (string.IsNullOrWhiteSpace(targetUserId))
-        {
-            return BadRequest(new { code = "CONTEXT_USERID_REQUIRED", message = "userId is required." });
-        }
+        var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userIdStr) || !int.TryParse(userIdStr, out var userId))
+            return Unauthorized(new { code = "AUTH_INVALID_TOKEN" });
 
         if (request.PlatformPreferences != null && request.PlatformPreferences.Any(p => string.IsNullOrWhiteSpace(p) || p.Length > MaxPlatformItemLength))
         {
@@ -123,7 +98,7 @@ public class ContextController : ControllerBase
             return BadRequest(new { code = "CONTEXT_INVALID_LANGUAGE", message = "Language must be vi or en." });
         }
 
-        var persona = await _service.UpdatePersonaAsync(targetUserId, request, ct);
+        var persona = await _service.UpdatePersonaAsync(userId, request, ct);
         return Ok(persona);
     }
 }

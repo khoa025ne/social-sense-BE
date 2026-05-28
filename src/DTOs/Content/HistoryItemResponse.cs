@@ -5,11 +5,11 @@ namespace SocialSense.DTOs.Content;
 
 public class HistoryItemResponse
 {
-    public Guid Id { get; set; }
+    public int Id { get; set; }
 
-    public string UserId { get; set; } = string.Empty;
+    public int UserId { get; set; }
 
-    public Guid? OriginalTrendId { get; set; }
+    public int? OriginalTrendId { get; set; }
 
     public List<GeneratedContentItem> GeneratedContent { get; set; } = new();
 

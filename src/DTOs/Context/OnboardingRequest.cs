@@ -4,9 +4,7 @@ namespace SocialSense.DTOs.Context;
 
 public class OnboardingRequest
 {
-    [Required]
-    [MaxLength(64)]
-    public string UserId { get; set; } = string.Empty;
+    public int UserId { get; set; }
 
     [Required]
     [MinLength(3)]

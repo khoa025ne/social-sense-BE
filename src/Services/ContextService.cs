@@ -42,7 +42,6 @@ public class ContextService : IContextService
 
         var entity = new UserContext
         {
-            Id = Guid.NewGuid(),
             UserId = request.UserId,
             Language = request.Language,
             RawAnswersJson = JsonSerializer.Serialize(request.Answers),
@@ -59,6 +58,15 @@ public class ContextService : IContextService
         };
 
         _db.UserContexts.Add(entity);
+
+        // Update user HasContext flag
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == request.UserId, ct);
+        if (user != null)
+        {
+            user.HasContext = true;
+            user.UpdatedAt = now;
+        }
+
         await _db.SaveChangesAsync(ct);
 
         return new OnboardingResponse
@@ -68,7 +76,7 @@ public class ContextService : IContextService
         };
     }
 
-    public async Task<PersonaResponse?> GetPersonaAsync(string userId, CancellationToken ct)
+    public async Task<PersonaResponse?> GetPersonaAsync(int userId, CancellationToken ct)
     {
         var entity = await _db.UserContexts
             .AsNoTracking()
@@ -84,7 +92,7 @@ public class ContextService : IContextService
         return MapPersona(entity);
     }
 
-    public async Task<PersonaResponse> UpdatePersonaAsync(string userId, UpdatePersonaRequest request, CancellationToken ct)
+    public async Task<PersonaResponse> UpdatePersonaAsync(int userId, UpdatePersonaRequest request, CancellationToken ct)
     {
         var now = DateTime.UtcNow;
 
@@ -97,7 +105,6 @@ public class ContextService : IContextService
         {
             var created = new UserContext
             {
-                Id = Guid.NewGuid(),
                 UserId = userId,
                 Language = request.Language ?? "vi",
                 RawAnswersJson = "[]",

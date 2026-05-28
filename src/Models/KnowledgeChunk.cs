@@ -1,15 +1,15 @@
-using System;
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace SocialSense.Models;
 
 public class KnowledgeChunk
 {
     [Key]
-    public Guid Id { get; set; }
+    [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
+    public int Id { get; set; }
 
-    [Required]
-    public Guid ItemId { get; set; }
+    public int ItemId { get; set; }
 
     [Required]
     public string ChunkText { get; set; } = string.Empty;

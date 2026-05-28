@@ -70,7 +70,7 @@ public class ContentGeneratorService : IContentGeneratorService
         List<Trend> candidateTrends;
         Trend? preselectedTrend = null;
 
-        if (!request.TrendId.HasValue || request.TrendId.Value == Guid.Empty)
+        if (!request.TrendId.HasValue || request.TrendId.Value == 0)
         {
             candidateTrends = await _db.Trends.AsNoTracking()
                 .OrderByDescending(t => t.HotLevel)
@@ -147,7 +147,7 @@ public class ContentGeneratorService : IContentGeneratorService
                     if (result != null)
                     {
                         // Resolve trend từ selectedTrendId trả về
-                        if (preselectedTrend == null && Guid.TryParse(result.SelectedTrendId, out var parsedId))
+                        if (preselectedTrend == null && int.TryParse(result.SelectedTrendId, out var parsedId))
                         {
                             selectedTrend = candidateTrends.FirstOrDefault(t => t.Id == parsedId);
                         }
@@ -202,7 +202,7 @@ public class ContentGeneratorService : IContentGeneratorService
             }
         }
 
-        // ── Bước 5: Lưu history và trừ quota ─────────────────────────────────
+        // ── Bước 5: Lưu history và trừ quota (chỉ khi AI thật thành công) ──────
         try
         {
             var serialized = JsonSerializer.Serialize(items);
@@ -211,8 +211,9 @@ public class ContentGeneratorService : IContentGeneratorService
             else
                 await _historyService.SaveHistoryAsync(request.UserId, selectedTrend.Id, serialized, mediaUrl, ct);
 
+            // Trừ quota: bỏ qua nếu DailyQuotaLimit = -1 (unlimited / Enterprise)
             await _db.Database.ExecuteSqlRawAsync(
-                "UPDATE Users SET RemainingQuota = RemainingQuota - 1 WHERE Id = {0} AND RemainingQuota > 0",
+                "UPDATE Users SET RemainingQuota = RemainingQuota - 1 WHERE Id = {0} AND RemainingQuota > 0 AND DailyQuotaLimit != -1",
                 new object[] { request.UserId }, ct);
         }
         catch (Exception ex)
@@ -308,15 +309,16 @@ public class ContentGeneratorService : IContentGeneratorService
             _logger.LogError(ex, "PersonaDriven content generation error.");
         }
 
-        // Lưu history (không có trendId — dùng Guid.Empty)
+        // Lưu history (không có trendId — dùng null), chỉ trừ quota khi AI thật thành công
         try
         {
             if (items.Count > 0)
             {
                 var serialized = JsonSerializer.Serialize(items);
-                await _historyService.SaveHistoryAsync(request.UserId, Guid.Empty, serialized, ct);
+                await _historyService.SaveHistoryAsync(request.UserId, null, serialized, ct);
+                // Trừ quota: bỏ qua nếu DailyQuotaLimit = -1 (unlimited / Enterprise)
                 await _db.Database.ExecuteSqlRawAsync(
-                    "UPDATE Users SET RemainingQuota = RemainingQuota - 1 WHERE Id = {0} AND RemainingQuota > 0",
+                    "UPDATE Users SET RemainingQuota = RemainingQuota - 1 WHERE Id = {0} AND RemainingQuota > 0 AND DailyQuotaLimit != -1",
                     new object[] { request.UserId }, ct);
             }
         }
@@ -726,7 +728,7 @@ Rules:
         return trimmed;
     }
 
-    private async Task<List<string>> GetTagsAsync(Guid trendId, CancellationToken ct)
+    private async Task<List<string>> GetTagsAsync(int trendId, CancellationToken ct)
     {
         return await _db.TrendTags.AsNoTracking()
             .Where(tt => tt.TrendId == trendId)
@@ -734,7 +736,7 @@ Rules:
             .ToListAsync(ct);
     }
 
-    private async Task<PersonaProfile> ResolvePersonaAsync(string userId, string? language, CancellationToken ct)
+    private async Task<PersonaProfile> ResolvePersonaAsync(int userId, string? language, CancellationToken ct)
     {
         var latest = await _db.UserContexts.AsNoTracking()
             .Where(x => x.UserId == userId)

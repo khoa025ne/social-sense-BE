@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -43,14 +44,14 @@ public class AuthController : ControllerBase
 
         var user = new User
         {
-            Id = Guid.NewGuid().ToString(),
             Email = email,
             DisplayName = request.DisplayName?.Trim() ?? email.Split('@')[0],
             PasswordHash = PasswordHelper.HashPassword(request.Password),
             HasContext = false,
             IsActive = true,
-            DailyQuotaLimit = 10,
-            RemainingQuota = 10,
+            Tier = UserTier.Free,
+            DailyQuotaLimit = Models.User.GetDefaultQuota(UserTier.Free),
+            RemainingQuota = Models.User.GetDefaultQuota(UserTier.Free),
             LastQuotaReset = DateTime.UtcNow,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -59,7 +60,24 @@ public class AuthController : ControllerBase
         _db.Users.Add(user);
         await _db.SaveChangesAsync(ct);
 
-        return Ok(new { message = "User registered successfully." });
+        // Tự động gán role "User" khi tạo tài khoản mới
+        var userRole = await _db.Roles.FirstOrDefaultAsync(r => r.Name == "User", ct);
+        if (userRole == null)
+        {
+            userRole = new Role
+            {
+                Name = "User",
+                Description = "Người dùng thông thường",
+                CreatedAt = DateTime.UtcNow
+            };
+            _db.Roles.Add(userRole);
+            await _db.SaveChangesAsync(ct);
+        }
+
+        _db.UserRoles.Add(new UserRole { UserId = user.Id, RoleId = userRole.Id });
+        await _db.SaveChangesAsync(ct);
+
+        return Ok(new { message = "User registered successfully.", userId = user.Id });
     }
 
     [HttpPost("login")]
@@ -78,7 +96,6 @@ public class AuthController : ControllerBase
         // Save refresh token to DB
         var userToken = new UserToken
         {
-            Id = Guid.NewGuid(),
             UserId = user.Id,
             RefreshToken = refreshToken,
             ExpiresAt = DateTime.UtcNow.AddDays(7),
@@ -91,6 +108,7 @@ public class AuthController : ControllerBase
 
         return Ok(new AuthResponse
         {
+            UserId = user.Id,
             AccessToken = accessToken,
             RefreshToken = refreshToken,
             Email = user.Email,
@@ -124,7 +142,6 @@ public class AuthController : ControllerBase
 
         var newUserToken = new UserToken
         {
-            Id = Guid.NewGuid(),
             UserId = user.Id,
             RefreshToken = newRefreshToken,
             ExpiresAt = DateTime.UtcNow.AddDays(7),
@@ -137,11 +154,116 @@ public class AuthController : ControllerBase
 
         return Ok(new AuthResponse
         {
+            UserId = user.Id,
             AccessToken = newAccessToken,
             RefreshToken = newRefreshToken,
             Email = user.Email,
             DisplayName = user.DisplayName ?? string.Empty,
             HasContext = user.HasContext
+        });
+    }
+
+    /// <summary>GET /auth/me — Trả về thông tin user hiện tại từ JWT</summary>
+    [HttpGet("me")]
+    [Authorize]
+    public async Task<IActionResult> Me(CancellationToken ct)
+    {
+        var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userIdStr) || !int.TryParse(userIdStr, out var userId))
+            return Unauthorized(new { code = "AUTH_INVALID_TOKEN" });
+
+        var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct);
+        if (user == null)
+            return NotFound(new { code = "USER_NOT_FOUND" });
+
+        var roles = await _db.UserRoles.AsNoTracking()
+            .Where(ur => ur.UserId == userId)
+            .Join(_db.Roles.AsNoTracking(), ur => ur.RoleId, r => r.Id, (ur, r) => r.Name)
+            .ToListAsync(ct);
+
+        return Ok(new MeResponse
+        {
+            Id = user.Id,
+            Email = user.Email,
+            DisplayName = user.DisplayName ?? string.Empty,
+            HasContext = user.HasContext,
+            Tier = user.Tier.ToString(),
+            DailyQuotaLimit = user.DailyQuotaLimit,
+            RemainingQuota = user.RemainingQuota,
+            IsUnlimited = user.DailyQuotaLimit == -1,
+            Roles = roles
+        });
+    }
+
+    /// <summary>
+    /// GET /auth/quota — Trả về thông tin quota của user hiện tại từ JWT.
+    /// Dùng để FE hiển thị số lượt còn lại, tier, % đã dùng.
+    /// </summary>
+    [HttpGet("quota")]
+    [Authorize]
+    public async Task<IActionResult> GetMyQuota(CancellationToken ct)
+    {
+        var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userIdStr) || !int.TryParse(userIdStr, out var userId))
+            return Unauthorized(new { code = "AUTH_INVALID_TOKEN" });
+
+        return await GetQuotaByIdInternal(userId, ct);
+    }
+
+    /// <summary>
+    /// GET /auth/users/{id}/quota — Trả về quota của user theo ID.
+    /// User chỉ xem được quota của chính mình; Admin xem được tất cả.
+    /// </summary>
+    [HttpGet("users/{id:int}/quota")]
+    [Authorize]
+    public async Task<IActionResult> GetUserQuota(int id, CancellationToken ct)
+    {
+        var callerIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(callerIdStr) || !int.TryParse(callerIdStr, out var callerId))
+            return Unauthorized(new { code = "AUTH_INVALID_TOKEN" });
+
+        // Chỉ cho phép xem quota của chính mình, trừ Admin
+        var isAdmin = User.IsInRole("Admin");
+        if (!isAdmin && callerId != id)
+            return Forbid();
+
+        return await GetQuotaByIdInternal(id, ct);
+    }
+
+    private async Task<IActionResult> GetQuotaByIdInternal(int userId, CancellationToken ct)
+    {
+        var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId, ct);
+        if (user == null)
+            return NotFound(new { code = "USER_NOT_FOUND" });
+
+        var now = DateTime.UtcNow;
+        var nextReset = user.LastQuotaReset.Date.AddDays(1); // 0h ngày hôm sau (UTC)
+        var isUnlimited = user.DailyQuotaLimit == -1;
+
+        double usagePercent = 0;
+        if (!isUnlimited && user.DailyQuotaLimit > 0)
+        {
+            var used = user.DailyQuotaLimit - user.RemainingQuota;
+            usagePercent = Math.Round((double)used / user.DailyQuotaLimit * 100, 1);
+        }
+
+        return Ok(new
+        {
+            userId = user.Id,
+            tier = user.Tier.ToString(),
+            dailyQuotaLimit = isUnlimited ? -1 : user.DailyQuotaLimit,
+            remainingQuota = isUnlimited ? -1 : user.RemainingQuota,
+            usedToday = isUnlimited ? 0 : Math.Max(0, user.DailyQuotaLimit - user.RemainingQuota),
+            isUnlimited,
+            usagePercent = isUnlimited ? 0 : usagePercent,
+            lastQuotaReset = user.LastQuotaReset,
+            nextResetAt = nextReset,
+            tierBenefits = new
+            {
+                free       = "5 lượt/ngày",
+                pro        = "50 lượt/ngày",
+                enterprise = "500 lượt/ngày hoặc Unlimited"
+            }
         });
     }
 
@@ -158,7 +280,7 @@ public class AuthController : ControllerBase
 
         var claims = new List<Claim>
         {
-            new Claim(ClaimTypes.NameIdentifier, user.Id),
+            new Claim(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new Claim(ClaimTypes.Email, user.Email),
             new Claim(ClaimTypes.Name, user.DisplayName ?? string.Empty)
         };

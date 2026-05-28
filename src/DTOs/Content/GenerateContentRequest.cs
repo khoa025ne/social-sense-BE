@@ -15,11 +15,9 @@ public enum ContentMode
 
 public class GenerateContentRequest
 {
-    [Required]
-    [MaxLength(64)]
-    public string UserId { get; set; } = string.Empty;
+    public int UserId { get; set; }
 
-    public Guid? TrendId { get; set; }
+    public int? TrendId { get; set; }
 
     [Range(1, 3)]
     public int OutputCount { get; set; } = 1;

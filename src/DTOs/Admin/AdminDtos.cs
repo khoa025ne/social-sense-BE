@@ -6,11 +6,12 @@ namespace SocialSense.DTOs.Admin;
 
 public class AdminUserListResponse
 {
-    public string Id { get; set; } = string.Empty;
+    public int Id { get; set; }
     public string Email { get; set; } = string.Empty;
     public string? DisplayName { get; set; }
     public bool IsActive { get; set; }
     public bool HasContext { get; set; }
+    public string Tier { get; set; } = "Free";
     public int DailyQuotaLimit { get; set; }
     public int RemainingQuota { get; set; }
     public DateTime LastQuotaReset { get; set; }
@@ -26,7 +27,7 @@ public class AdminUpdateUserRequest
 
     public bool? IsActive { get; set; }
 
-    [Range(1, 1000)]
+    [Range(-1, 10000)]
     public int? DailyQuotaLimit { get; set; }
 
     /// <summary>Nếu true, reset RemainingQuota về DailyQuotaLimit ngay lập tức.</summary>
@@ -54,7 +55,7 @@ public class AdminCreateUserRequest
 
 public class ApiKeyResponse
 {
-    public Guid Id { get; set; }
+    public int Id { get; set; }
     public string Label { get; set; } = string.Empty;
     /// <summary>Chỉ trả về 4 ký tự cuối để bảo mật.</summary>
     public string KeySuffix { get; set; } = string.Empty;
@@ -162,4 +163,33 @@ public class DailyStatPoint
     public string Date { get; set; } = string.Empty;
     public int ContentGenerated { get; set; }
     public int NewUsers { get; set; }
+}
+
+// ── Tier Management ───────────────────────────────────────────────────────────
+
+public class UpdateUserTierRequest
+{
+    /// <summary>Free | Pro | Enterprise</summary>
+    [Required]
+    public string Tier { get; set; } = "Free";
+
+    /// <summary>
+    /// Override quota tùy chỉnh. Null = dùng mặc định của tier.
+    /// -1 = unlimited (chỉ hợp lệ với Enterprise).
+    /// </summary>
+    public int? CustomDailyQuota { get; set; }
+}
+
+// ── User Quota (public endpoint) ──────────────────────────────────────────────
+
+public class UserQuotaResponse
+{
+    public int UserId { get; set; }
+    public string Tier { get; set; } = "Free";
+    public int DailyQuotaLimit { get; set; }
+    public int RemainingQuota { get; set; }
+    public bool IsUnlimited { get; set; }
+    public DateTime LastQuotaReset { get; set; }
+    public DateTime NextResetAt { get; set; }
+    public double UsagePercent { get; set; }
 }

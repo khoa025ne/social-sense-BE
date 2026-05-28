@@ -29,6 +29,8 @@ public class LoginRequest
 
 public class AuthResponse
 {
+    public int UserId { get; set; }
+
     public string AccessToken { get; set; } = string.Empty;
 
     public string RefreshToken { get; set; } = string.Empty;
@@ -44,4 +46,17 @@ public class RefreshTokenRequest
 {
     [Required]
     public string RefreshToken { get; set; } = string.Empty;
+}
+
+public class MeResponse
+{
+    public int Id { get; set; }
+    public string Email { get; set; } = string.Empty;
+    public string DisplayName { get; set; } = string.Empty;
+    public bool HasContext { get; set; }
+    public string Tier { get; set; } = "Free";
+    public int DailyQuotaLimit { get; set; }
+    public int RemainingQuota { get; set; }
+    public bool IsUnlimited { get; set; }
+    public List<string> Roles { get; set; } = new();
 }

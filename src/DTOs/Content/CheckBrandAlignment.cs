@@ -4,9 +4,7 @@ namespace SocialSense.DTOs.Content;
 
 public class CheckBrandAlignmentRequest
 {
-    [Required]
-    [MaxLength(64)]
-    public string UserId { get; set; } = string.Empty;
+    public int UserId { get; set; }
 
     [Required]
     [MinLength(10, ErrorMessage = "DraftContent must be at least 10 characters.")]

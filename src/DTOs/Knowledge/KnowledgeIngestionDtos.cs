@@ -43,6 +43,6 @@ public class GeminiTrendOutput
 
 public class RecentTrendDto
 {
-    public Guid Id { get; set; }
+    public int Id { get; set; }
     public string Title { get; set; } = string.Empty;
 }

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.ComponentModel.DataAnnotations.Schema;
 
 namespace SocialSense.Models;
 
@@ -8,7 +9,8 @@ namespace SocialSense.Models;
 public class ApiKeyConfig
 {
     [Key]
-    public Guid Id { get; set; }
+    [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
+    public int Id { get; set; }
 
     /// <summary>Tên hiển thị để dễ nhận biết, ví dụ: "Key Gmail Phụ 1"</summary>
     [Required]

@@ -142,6 +142,7 @@ public class AdminController : ControllerBase
             DisplayName = u.DisplayName,
             IsActive = u.IsActive,
             HasContext = u.HasContext,
+            Tier = u.Tier.ToString(),
             DailyQuotaLimit = u.DailyQuotaLimit,
             RemainingQuota = u.RemainingQuota,
             LastQuotaReset = u.LastQuotaReset,
@@ -161,8 +162,8 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>GET /admin/users/{id} — Chi tiết 1 user</summary>
-    [HttpGet("users/{id}")]
-    public async Task<IActionResult> GetUser(string id, CancellationToken ct)
+    [HttpGet("users/{id:int}")]
+    public async Task<IActionResult> GetUser(int id, CancellationToken ct)
     {
         var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == id, ct);
         if (user == null) return NotFound(new { code = "USER_NOT_FOUND" });
@@ -181,6 +182,7 @@ public class AdminController : ControllerBase
             DisplayName = user.DisplayName,
             IsActive = user.IsActive,
             HasContext = user.HasContext,
+            Tier = user.Tier.ToString(),
             DailyQuotaLimit = user.DailyQuotaLimit,
             RemainingQuota = user.RemainingQuota,
             LastQuotaReset = user.LastQuotaReset,
@@ -200,12 +202,12 @@ public class AdminController : ControllerBase
 
         var user = new User
         {
-            Id = Guid.NewGuid().ToString(),
             Email = email,
             DisplayName = request.DisplayName?.Trim() ?? email.Split('@')[0],
             PasswordHash = Services.PasswordHelper.HashPassword(request.Password),
             HasContext = false,
             IsActive = true,
+            Tier = SocialSense.Models.UserTier.Free,
             DailyQuotaLimit = request.DailyQuotaLimit,
             RemainingQuota = request.DailyQuotaLimit,
             LastQuotaReset = DateTime.UtcNow,
@@ -214,6 +216,12 @@ public class AdminController : ControllerBase
         };
 
         _db.Users.Add(user);
+        await _db.SaveChangesAsync(ct);
+
+        // Gán role User mặc định
+        var userRole = await _db.Roles.FirstOrDefaultAsync(r => r.Name == "User", ct);
+        if (userRole != null)
+            _db.UserRoles.Add(new UserRole { UserId = user.Id, RoleId = userRole.Id });
 
         if (request.IsAdmin)
         {
@@ -228,8 +236,8 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>PUT /admin/users/{id} — Cập nhật thông tin user</summary>
-    [HttpPut("users/{id}")]
-    public async Task<IActionResult> UpdateUser(string id, [FromBody] AdminUpdateUserRequest request, CancellationToken ct)
+    [HttpPut("users/{id:int}")]
+    public async Task<IActionResult> UpdateUser(int id, [FromBody] AdminUpdateUserRequest request, CancellationToken ct)
     {
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
         if (user == null) return NotFound(new { code = "USER_NOT_FOUND" });
@@ -239,7 +247,6 @@ public class AdminController : ControllerBase
         if (request.DailyQuotaLimit.HasValue)
         {
             user.DailyQuotaLimit = request.DailyQuotaLimit.Value;
-            // Nếu tăng limit, cũng tăng remaining tương ứng
             if (user.RemainingQuota > user.DailyQuotaLimit)
                 user.RemainingQuota = user.DailyQuotaLimit;
         }
@@ -257,12 +264,11 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>DELETE /admin/users/{id} — Vô hiệu hóa user (soft delete)</summary>
-    [HttpDelete("users/{id}")]
-    public async Task<IActionResult> DeactivateUser(string id, CancellationToken ct)
+    [HttpDelete("users/{id:int}")]
+    public async Task<IActionResult> DeactivateUser(int id, CancellationToken ct)
     {
-        // Không cho phép admin tự xóa chính mình
-        var currentUserId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (id == currentUserId)
+        var currentUserIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (int.TryParse(currentUserIdStr, out var currentUserId) && id == currentUserId)
             return BadRequest(new { code = "CANNOT_DELETE_SELF", message = "Không thể vô hiệu hóa tài khoản của chính mình." });
 
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
@@ -277,8 +283,8 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>POST /admin/users/{id}/restore — Kích hoạt lại user</summary>
-    [HttpPost("users/{id}/restore")]
-    public async Task<IActionResult> RestoreUser(string id, CancellationToken ct)
+    [HttpPost("users/{id:int}/restore")]
+    public async Task<IActionResult> RestoreUser(int id, CancellationToken ct)
     {
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
         if (user == null) return NotFound(new { code = "USER_NOT_FOUND" });
@@ -291,8 +297,8 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>POST /admin/users/{id}/reset-quota — Reset quota ngay lập tức</summary>
-    [HttpPost("users/{id}/reset-quota")]
-    public async Task<IActionResult> ResetUserQuota(string id, CancellationToken ct)
+    [HttpPost("users/{id:int}/reset-quota")]
+    public async Task<IActionResult> ResetUserQuota(int id, CancellationToken ct)
     {
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
         if (user == null) return NotFound(new { code = "USER_NOT_FOUND" });
@@ -303,6 +309,57 @@ public class AdminController : ControllerBase
         await _db.SaveChangesAsync(ct);
 
         return Ok(new { message = $"Đã reset quota về {user.DailyQuotaLimit}." });
+    }
+
+    /// <summary>
+    /// PUT /admin/users/{id}/tier — Đổi tier của user.
+    /// Tự động cập nhật DailyQuotaLimit theo tier mặc định (Free=5, Pro=50, Enterprise=500/-1).
+    /// Admin có thể override bằng customDailyQuota.
+    /// </summary>
+    [HttpPut("users/{id:int}/tier")]
+    public async Task<IActionResult> UpdateUserTier(int id, [FromBody] UpdateUserTierRequest request, CancellationToken ct)
+    {
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
+        if (user == null) return NotFound(new { code = "USER_NOT_FOUND" });
+
+        if (!Enum.TryParse<SocialSense.Models.UserTier>(request.Tier, ignoreCase: true, out var tier))
+            return BadRequest(new { code = "INVALID_TIER", message = "Tier phải là Free, Pro hoặc Enterprise." });
+
+        user.Tier = tier;
+
+        // Xác định quota mới
+        int newQuota;
+        if (request.CustomDailyQuota.HasValue)
+        {
+            // Validate: chỉ Enterprise mới được dùng -1 (unlimited)
+            if (request.CustomDailyQuota.Value == -1 && tier != SocialSense.Models.UserTier.Enterprise)
+                return BadRequest(new { code = "UNLIMITED_ENTERPRISE_ONLY", message = "Unlimited (-1) chỉ dành cho tier Enterprise." });
+            if (request.CustomDailyQuota.Value < -1)
+                return BadRequest(new { code = "INVALID_QUOTA", message = "customDailyQuota phải >= -1." });
+            newQuota = request.CustomDailyQuota.Value;
+        }
+        else
+        {
+            newQuota = SocialSense.Models.User.GetDefaultQuota(tier);
+        }
+
+        user.DailyQuotaLimit = newQuota;
+        // Reset remaining về limit mới (nếu unlimited thì set về int.MaxValue để tránh lỗi)
+        user.RemainingQuota = newQuota == -1 ? int.MaxValue : newQuota;
+        user.LastQuotaReset = DateTime.UtcNow;
+        user.UpdatedAt = DateTime.UtcNow;
+
+        await _db.SaveChangesAsync(ct);
+        _logger.LogInformation("Admin changed user {UserId} tier to {Tier}, quota={Quota}", id, tier, newQuota);
+
+        return Ok(new
+        {
+            message = $"Đã đổi tier thành {tier}.",
+            userId = id,
+            tier = tier.ToString(),
+            dailyQuotaLimit = newQuota,
+            isUnlimited = newQuota == -1
+        });
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -346,14 +403,12 @@ public class AdminController : ControllerBase
     [HttpPost("api-keys")]
     public async Task<IActionResult> AddApiKey([FromBody] CreateApiKeyRequest request, CancellationToken ct)
     {
-        // Kiểm tra trùng key
         var exists = await _db.ApiKeyConfigs.AnyAsync(k => k.KeyValue == request.KeyValue, ct);
         if (exists)
             return BadRequest(new { code = "KEY_ALREADY_EXISTS", message = "Key này đã tồn tại trong hệ thống." });
 
         var key = new ApiKeyConfig
         {
-            Id = Guid.NewGuid(),
             Label = request.Label.Trim(),
             KeyValue = request.KeyValue.Trim(),
             IsActive = true,
@@ -365,7 +420,6 @@ public class AdminController : ControllerBase
         _db.ApiKeyConfigs.Add(key);
         await _db.SaveChangesAsync(ct);
 
-        // Hot-reload pool ngay lập tức
         await _keyPool.ReloadFromDatabaseAsync();
 
         _logger.LogInformation("Admin added new API key: {Label}", key.Label);
@@ -399,7 +453,6 @@ public class AdminController : ControllerBase
 
             _db.ApiKeyConfigs.Add(new ApiKeyConfig
             {
-                Id = Guid.NewGuid(),
                 Label = req.Label.Trim(),
                 KeyValue = req.KeyValue.Trim(),
                 IsActive = true,
@@ -418,8 +471,8 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>PUT /admin/api-keys/{id} — Cập nhật API key</summary>
-    [HttpPut("api-keys/{id:guid}")]
-    public async Task<IActionResult> UpdateApiKey(Guid id, [FromBody] UpdateApiKeyRequest request, CancellationToken ct)
+    [HttpPut("api-keys/{id:int}")]
+    public async Task<IActionResult> UpdateApiKey(int id, [FromBody] UpdateApiKeyRequest request, CancellationToken ct)
     {
         var key = await _db.ApiKeyConfigs.FirstOrDefaultAsync(k => k.Id == id, ct);
         if (key == null) return NotFound(new { code = "KEY_NOT_FOUND" });
@@ -429,7 +482,6 @@ public class AdminController : ControllerBase
         if (request.Notes != null) key.Notes = request.Notes.Trim();
         if (!string.IsNullOrWhiteSpace(request.KeyValue))
         {
-            // Kiểm tra trùng với key khác
             var duplicate = await _db.ApiKeyConfigs.AnyAsync(k => k.KeyValue == request.KeyValue && k.Id != id, ct);
             if (duplicate)
                 return BadRequest(new { code = "KEY_ALREADY_EXISTS", message = "Giá trị key này đã được dùng bởi key khác." });
@@ -444,8 +496,8 @@ public class AdminController : ControllerBase
     }
 
     /// <summary>DELETE /admin/api-keys/{id} — Xóa API key</summary>
-    [HttpDelete("api-keys/{id:guid}")]
-    public async Task<IActionResult> DeleteApiKey(Guid id, CancellationToken ct)
+    [HttpDelete("api-keys/{id:int}")]
+    public async Task<IActionResult> DeleteApiKey(int id, CancellationToken ct)
     {
         var key = await _db.ApiKeyConfigs.FirstOrDefaultAsync(k => k.Id == id, ct);
         if (key == null) return NotFound(new { code = "KEY_NOT_FOUND" });
@@ -488,11 +540,6 @@ public class AdminController : ControllerBase
     // STATISTICS & COMPARISON
     // ═══════════════════════════════════════════════════════════════════════════
 
-    /// <summary>
-    /// POST /admin/stats/compare — So sánh 2 kỳ bất kỳ
-    /// Period: "day" | "month" | "quarter" | "year"
-    /// PeriodA/B: ngày bắt đầu của kỳ (yyyy-MM-dd)
-    /// </summary>
     [HttpPost("stats/compare")]
     public async Task<IActionResult> CompareStats([FromBody] StatsCompareRequest request, CancellationToken ct)
     {
@@ -548,7 +595,7 @@ public class AdminController : ControllerBase
             NewUsers = newUsers,
             ActiveUsers = activeUsers,
             TotalContentGenerated = totalContent,
-            TotalApiCalls = totalContent, // 1 content = 1 API call sau tối ưu
+            TotalApiCalls = totalContent,
             NewKnowledgeItems = newKnowledge,
             NewTrends = newTrends
         };

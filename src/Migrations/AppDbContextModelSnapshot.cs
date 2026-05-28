@@ -21,15 +21,14 @@ namespace SocialSense.Migrations
 
             modelBuilder.Entity("SocialSense.Models.ApiKeyConfig", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("char(36)");
+                        .HasColumnType("int");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
 
                     b.Property<bool>("IsActive")
-                        .HasDefaultValue(true)
                         .HasColumnType("tinyint(1)");
 
                     b.Property<string>("KeyValue")
@@ -58,9 +57,9 @@ namespace SocialSense.Migrations
 
             modelBuilder.Entity("SocialSense.Models.ContentHistory", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("char(36)");
+                        .HasColumnType("int");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
@@ -76,16 +75,14 @@ namespace SocialSense.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("varchar(500)");
 
-                    b.Property<Guid?>("OriginalTrendId")
-                        .HasColumnType("char(36)");
+                    b.Property<int?>("OriginalTrendId")
+                        .HasColumnType("int");
 
                     b.Property<string>("UserEditedContent")
                         .HasColumnType("longtext");
 
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)");
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -100,9 +97,9 @@ namespace SocialSense.Migrations
 
             modelBuilder.Entity("SocialSense.Models.ExternalLogin", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("char(36)");
+                        .HasColumnType("int");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
@@ -117,10 +114,8 @@ namespace SocialSense.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("varchar(200)");
 
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)");
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -134,9 +129,9 @@ namespace SocialSense.Migrations
 
             modelBuilder.Entity("SocialSense.Models.KnowledgeChunk", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("char(36)");
+                        .HasColumnType("int");
 
                     b.Property<string>("AiInsightsJson")
                         .IsRequired()
@@ -155,8 +150,8 @@ namespace SocialSense.Migrations
                         .IsRequired()
                         .HasColumnType("longtext");
 
-                    b.Property<Guid>("ItemId")
-                        .HasColumnType("char(36)");
+                    b.Property<int>("ItemId")
+                        .HasColumnType("int");
 
                     b.Property<string>("KeywordsJson")
                         .IsRequired()
@@ -171,9 +166,9 @@ namespace SocialSense.Migrations
 
             modelBuilder.Entity("SocialSense.Models.KnowledgeItem", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("char(36)");
+                        .HasColumnType("int");
 
                     b.Property<string>("ContentHash")
                         .IsRequired()
@@ -211,9 +206,9 @@ namespace SocialSense.Migrations
 
             modelBuilder.Entity("SocialSense.Models.Role", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("char(36)");
+                        .HasColumnType("int");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
@@ -237,9 +232,9 @@ namespace SocialSense.Migrations
 
             modelBuilder.Entity("SocialSense.Models.Tag", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("char(36)");
+                        .HasColumnType("int");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -261,9 +256,9 @@ namespace SocialSense.Migrations
 
             modelBuilder.Entity("SocialSense.Models.Trend", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("char(36)");
+                        .HasColumnType("int");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
@@ -303,11 +298,11 @@ namespace SocialSense.Migrations
 
             modelBuilder.Entity("SocialSense.Models.TrendTag", b =>
                 {
-                    b.Property<Guid>("TrendId")
-                        .HasColumnType("char(36)");
+                    b.Property<int>("TrendId")
+                        .HasColumnType("int");
 
-                    b.Property<Guid>("TagId")
-                        .HasColumnType("char(36)");
+                    b.Property<int>("TagId")
+                        .HasColumnType("int");
 
                     b.HasKey("TrendId", "TagId");
 
@@ -318,9 +313,9 @@ namespace SocialSense.Migrations
 
             modelBuilder.Entity("SocialSense.Models.User", b =>
                 {
-                    b.Property<string>("Id")
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)");
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
@@ -328,7 +323,7 @@ namespace SocialSense.Migrations
                     b.Property<int>("DailyQuotaLimit")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int")
-                        .HasDefaultValue(10);
+                        .HasDefaultValue(5);
 
                     b.Property<string>("DisplayName")
                         .HasMaxLength(160)
@@ -357,7 +352,10 @@ namespace SocialSense.Migrations
                     b.Property<int>("RemainingQuota")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int")
-                        .HasDefaultValue(10);
+                        .HasDefaultValue(5);
+
+                    b.Property<int>("Tier")
+                        .HasColumnType("int");
 
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime(6)");
@@ -372,9 +370,9 @@ namespace SocialSense.Migrations
 
             modelBuilder.Entity("SocialSense.Models.UserContext", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("char(36)");
+                        .HasColumnType("int");
 
                     b.Property<string>("ContentFormatsJson")
                         .HasColumnType("longtext");
@@ -414,10 +412,8 @@ namespace SocialSense.Migrations
                     b.Property<DateTime>("UpdatedAt")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)");
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
 
                     b.Property<int>("Version")
                         .HasColumnType("int");
@@ -433,12 +429,11 @@ namespace SocialSense.Migrations
 
             modelBuilder.Entity("SocialSense.Models.UserRole", b =>
                 {
-                    b.Property<string>("UserId")
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)");
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
 
-                    b.Property<Guid>("RoleId")
-                        .HasColumnType("char(36)");
+                    b.Property<int>("RoleId")
+                        .HasColumnType("int");
 
                     b.HasKey("UserId", "RoleId");
 
@@ -449,9 +444,9 @@ namespace SocialSense.Migrations
 
             modelBuilder.Entity("SocialSense.Models.UserToken", b =>
                 {
-                    b.Property<Guid>("Id")
+                    b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
-                        .HasColumnType("char(36)");
+                        .HasColumnType("int");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime(6)");
@@ -470,10 +465,8 @@ namespace SocialSense.Migrations
                     b.Property<DateTime?>("RevokedAt")
                         .HasColumnType("datetime(6)");
 
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("varchar(64)");
+                    b.Property<int>("UserId")
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 

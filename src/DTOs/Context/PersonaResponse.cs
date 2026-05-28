@@ -2,7 +2,7 @@ namespace SocialSense.DTOs.Context;
 
 public class PersonaResponse
 {
-    public string UserId { get; set; } = string.Empty;
+    public int UserId { get; set; }
 
     public int Version { get; set; }
 
