@@ -11,7 +11,12 @@ using SocialSense.Services.Scrapers;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        // Cho phép deserialize enum từ string (vd: "PersonaDriven" thay vì 1)
+        options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    });
 builder.Services.AddEndpointsApiExplorer();
 
 // Configure CORS to allow interface test calls

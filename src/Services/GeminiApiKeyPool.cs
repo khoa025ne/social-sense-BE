@@ -27,6 +27,11 @@ public class GeminiApiKeyPool
         public string Label { get; init; } = string.Empty;
         /// <summary>openrouter | groq | gemini | openai — dùng để build Authorization header đúng cách</summary>
         public string Provider { get; init; } = "openrouter";
+        /// <summary>
+        /// Model ID riêng cho slot này. Nếu null, service sẽ dùng model mặc định từ Options.
+        /// Dùng khi mỗi provider có model ID khác nhau (vd: Groq dùng full ID, OpenRouter dùng short ID).
+        /// </summary>
+        public string? ModelOverride { get; init; }
         public DateTime CooldownUntil { get; set; } = DateTime.MinValue;
     }
 
@@ -35,6 +40,8 @@ public class GeminiApiKeyPool
         public string Label { get; set; } = string.Empty;
         public string KeyValue { get; set; } = string.Empty;
         public string Provider { get; set; } = "openrouter";
+        /// <summary>Model ID override cho provider này. Để trống để dùng model mặc định từ Options.</summary>
+        public string? ModelOverride { get; set; }
     }
 
     public GeminiApiKeyPool(
@@ -70,7 +77,8 @@ public class GeminiApiKeyPool
             {
                 Key = k.KeyValue,
                 Label = $"{k.Label} (...{k.KeyValue[^4..]})",
-                Provider = k.Provider?.ToLowerInvariant() ?? "openrouter"
+                Provider = k.Provider?.ToLowerInvariant() ?? "openrouter",
+                ModelOverride = string.IsNullOrWhiteSpace(k.ModelOverride) ? null : k.ModelOverride
             }).ToArray();
         }
 

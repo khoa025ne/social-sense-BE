@@ -60,6 +60,12 @@ public class ContentGeneratorService : IContentGeneratorService
         var persona = await ResolvePersonaAsync(request.UserId, request.Language, ct);
         var outputCount = Math.Clamp(request.OutputCount, 1, 3);
 
+        // ── PersonaDriven mode: không cần trend, AI tự suy luận từ persona ───
+        if (request.Mode == ContentMode.PersonaDriven)
+        {
+            return await GeneratePersonaDrivenAsync(request, persona, outputCount, ct);
+        }
+
         // ── Bước 1: Lấy dữ liệu từ DB (không tốn quota) ──────────────────────
         List<Trend> candidateTrends;
         Trend? preselectedTrend = null;
@@ -110,7 +116,7 @@ public class ContentGeneratorService : IContentGeneratorService
 
         // ── Bước 3: 1 API call duy nhất làm tất cả ───────────────────────────
         var prompt = BuildUnifiedGeneratePrompt(
-            candidateTrends, preselectedTrend, knowledges, persona, outputCount, request.TargetPlatforms);
+            candidateTrends, preselectedTrend, knowledges, persona, outputCount, request.TargetPlatforms, request.UserInstruction);
 
         Func<HttpRequestMessage> requestFactory = () =>
             BuildRequest(prompt, _options.Temperature, _options.MaxOutputTokens);
@@ -222,6 +228,228 @@ public class ContentGeneratorService : IContentGeneratorService
         };
     }
 
+    // ── PersonaDriven: sinh content thuần từ persona, không cần trend ─────────
+    private async Task<GenerateContentResponse?> GeneratePersonaDrivenAsync(
+        GenerateContentRequest request,
+        PersonaProfile persona,
+        int outputCount,
+        CancellationToken ct)
+    {
+        // Vẫn load knowledge base để AI có thể dùng thông tin sản phẩm/thương hiệu
+        var knowledges = await _db.KnowledgeItems.AsNoTracking()
+            .OrderByDescending(k => k.CreatedAt)
+            .Take(_options.MaxKnowledgeItems)
+            .ToListAsync(ct);
+
+        if (!_options.Enabled || !_keyPool.HasKeys)
+        {
+            return new GenerateContentResponse
+            {
+                Items = new List<GeneratedContentItem>(),
+                SelectedTrendTitle = null,
+                SmartMatchReason = "[Fallback] AI bị tắt hoặc không có API key."
+            };
+        }
+
+        var prompt = BuildPersonaDrivenPrompt(knowledges, persona, outputCount, request.TargetPlatforms, request.UserInstruction);
+        Func<HttpRequestMessage> requestFactory = () => BuildRequest(prompt, _options.Temperature, _options.MaxOutputTokens);
+
+        List<GeneratedContentItem> items = new();
+        string smartMatchReason = "Nội dung được sinh thuần từ persona — không phụ thuộc trend.";
+
+        try
+        {
+            using var response = await SendWithRetryAsync(requestFactory, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync(ct);
+                _logger.LogWarning("PersonaDriven generate failed: {StatusCode}. Response: {ErrorBody}", response.StatusCode, errorBody);
+            }
+            else
+            {
+                await using var stream = await response.Content.ReadAsStreamAsync(ct);
+                using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+                var text = ExtractText(doc);
+                if (!string.IsNullOrWhiteSpace(text))
+                {
+                    var cleaned = StripCodeFence(text);
+                    // PersonaDriven trả về mảng items trực tiếp
+                    try
+                    {
+                        var parsed = JsonSerializer.Deserialize<List<GeneratedContentItem>>(cleaned,
+                            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        if (parsed != null)
+                            items = parsed.Select(i => SanitizeContentItem(i, persona.Language)).Take(outputCount).ToList();
+                    }
+                    catch (JsonException)
+                    {
+                        // Thử parse dạng object có field "items" (fallback)
+                        try
+                        {
+                            var wrapper = JsonSerializer.Deserialize<UnifiedGenerateResult>(cleaned,
+                                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                            if (wrapper?.Items != null)
+                            {
+                                items = wrapper.Items.Select(i => SanitizeContentItem(i, persona.Language)).Take(outputCount).ToList();
+                                if (!string.IsNullOrWhiteSpace(wrapper.SmartMatchReason))
+                                    smartMatchReason = wrapper.SmartMatchReason;
+                            }
+                        }
+                        catch (JsonException ex2)
+                        {
+                            _logger.LogError(ex2, "PersonaDriven: failed to parse response. Raw: {Raw}", text);
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "PersonaDriven content generation error.");
+        }
+
+        // Lưu history (không có trendId — dùng Guid.Empty)
+        try
+        {
+            if (items.Count > 0)
+            {
+                var serialized = JsonSerializer.Serialize(items);
+                await _historyService.SaveHistoryAsync(request.UserId, Guid.Empty, serialized, ct);
+                await _db.Database.ExecuteSqlRawAsync(
+                    "UPDATE Users SET RemainingQuota = RemainingQuota - 1 WHERE Id = {0} AND RemainingQuota > 0",
+                    new object[] { request.UserId }, ct);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save PersonaDriven history for user {UserId}", request.UserId);
+        }
+
+        return new GenerateContentResponse
+        {
+            Items = items,
+            SelectedTrendTitle = null,
+            SmartMatchReason = smartMatchReason
+        };
+    }
+
+    /// <summary>
+    /// Prompt "playbook tâm lý" — AI đọc persona, tự suy luận ngành nghề,
+    /// sản phẩm, pain point của khách hàng rồi áp dụng đúng công thức tâm lý.
+    /// Không phụ thuộc trend — phù hợp BĐS, bán hàng, dịch vụ, v.v.
+    /// </summary>
+    private string BuildPersonaDrivenPrompt(
+        List<KnowledgeItem> knowledges,
+        PersonaProfile persona,
+        int outputCount,
+        List<string>? targetPlatforms,
+        string? userInstruction = null)
+    {
+        List<string> platformsToUse;
+        if (_options.MultiPlatformEnabled && targetPlatforms != null && targetPlatforms.Count > 0)
+            platformsToUse = targetPlatforms;
+        else if (persona.PlatformPreferences.Count > 0)
+            platformsToUse = persona.PlatformPreferences;
+        else
+            platformsToUse = new List<string> { "General" };
+
+        var platformListStr = string.Join(", ", platformsToUse);
+        var audienceStr = persona.TargetAudience.Count > 0 ? string.Join(", ", persona.TargetAudience) : "General public";
+        var formatsStr = persona.ContentFormats.Count > 0 ? string.Join(", ", persona.ContentFormats) : "Standard posts";
+        var negativesStr = persona.NegativeConstraints.Count > 0 ? string.Join(", ", persona.NegativeConstraints) : "None";
+
+        var knowledgeSection = knowledges.Count > 0
+            ? string.Join("\n", knowledges.Select((k, i) =>
+                $"[K{i + 1}] {k.Title}: {(k.RawContent?.Length > _options.MaxKnowledgeContentLength ? k.RawContent[.._options.MaxKnowledgeContentLength] + "..." : k.RawContent)}"))
+            : "No internal knowledge available.";
+
+        var userInstructionSection = !string.IsNullOrWhiteSpace(userInstruction)
+            ? $"\n⚡ USER INSTRUCTION (HIGHEST PRIORITY):\n{userInstruction.Trim()}\n"
+            : string.Empty;
+
+        return $@"You are the world's most elite psychological copywriter and sales strategist.
+Your job: read the Brand Persona deeply, infer the industry/product/service being sold, identify the customer's deepest pain points and desires, then craft content that hits them psychologically.
+Return ONLY a raw JSON array — no markdown, no explanation.
+{userInstructionSection}
+
+═══ PHASE 1 — PERSONA ANALYSIS (internal reasoning, do NOT output) ═══
+From the Brand Persona below, infer:
+- What industry/niche is this person in? (real estate, fashion, finance, food, etc.)
+- What specific product or service are they selling?
+- What is the #1 fear of their target audience? (losing money, missing opportunity, being left behind...)
+- What is the #1 desire of their target audience? (wealth, status, security, belonging...)
+- What psychological trigger works best for this niche?
+
+═══ PHASE 2 — PSYCHOLOGICAL PLAYBOOK (apply the right formula per niche) ═══
+Select and apply the most powerful triggers for this specific industry:
+
+🏠 Real Estate / Land:
+  - FOMO + Scarcity: ""Chỉ còn X lô cuối"", ""Giá tăng X% sau Tết"", ""Quy hoạch mới vừa được duyệt""
+  - Future Pacing: ""5 năm nữa mảnh đất này trị giá gấp 3"", ""Con bạn sẽ cảm ơn bạn vì quyết định hôm nay""
+  - Loss Aversion: ""Người mua năm 2020 đã lãi 200% — bạn có muốn bỏ lỡ lần này không?""
+  - Authority: ""Chuyên gia 10 năm kinh nghiệm khuyên: đây là thời điểm vàng""
+  - Micro-commitment: ""Chỉ 100 triệu để giữ chỗ — đừng để người khác mua trước""
+
+💰 Finance / Investment:
+  - Social Proof: ""Hơn 500 nhà đầu tư đã chốt lời tháng này""
+  - Urgency: ""Lãi suất ưu đãi chỉ còn hiệu lực đến cuối tháng""
+  - Identity: ""Người thông minh không để tiền chết trong ngân hàng""
+
+👗 Fashion / Lifestyle:
+  - Status & Exclusivity: ""Chỉ 50 chiếc — dành cho người biết mình xứng đáng""
+  - Transformation: ""Mặc vào là khác — tự tin ngay từ cái nhìn đầu tiên""
+
+🍜 Food & Beverage:
+  - Sensory: ""Hương vị khiến bạn quên mọi lo toan""
+  - Community: ""Hàng nghìn khách hàng quay lại mỗi tuần — bạn đã thử chưa?""
+
+📚 Education / Coaching:
+  - Pain Agitation: ""Bạn đang làm việc chăm chỉ nhưng thu nhập vẫn giậm chân tại chỗ?""
+  - Transformation Promise: ""3 tháng thay đổi tư duy — cả đời thay đổi thu nhập""
+
+(Apply the formula that matches the inferred industry. If industry is unclear, use the most universal triggers.)
+
+═══ PHASE 3 — CONTENT GENERATION ═══
+Generate exactly {outputCount} content item(s). Each item must:
+- Open with a SCROLL-STOPPING hook (first 2 lines must make them stop scrolling)
+- Use the psychological trigger most relevant to this persona's industry
+- Speak directly to the target audience's #1 fear OR #1 desire
+- Feel like it was written by a human expert in that field, NOT a generic AI
+- Match the tone, language, and style of the Brand Persona exactly
+
+Brand Persona:
+- Job Title: {persona.JobTitle}
+- Tone of Voice: {persona.ToneOfVoice}
+- Language: {persona.Language}
+- Target Audience: {audienceStr}
+- Preferred Formats: {formatsStr}
+- Negative Constraints (NEVER do these): {negativesStr}
+
+Internal Knowledge Base (product info, brand facts — weave naturally into content):
+{knowledgeSection}
+
+Target Platforms: [{platformListStr}] — one platform per item, vary platforms if multiple items.
+
+Return ONLY this raw JSON array (no ```json wrapper, no object wrapper):
+[
+  {{
+    ""platform"": ""platform name"",
+    ""hook"": ""scroll-stopping first line that triggers immediate emotion"",
+    ""body"": ""psychologically crafted body under {_options.MaxBodyLength} chars — hits pain point then presents solution"",
+    ""cta"": ""urgent, specific call to action with micro-commitment or deadline"",
+    ""hashtags"": [""tag1"", ""tag2""],
+    ""bannerImagePrompt"": ""detailed English image prompt evoking the emotion of the content"",
+    ""bestTimeToPost"": ""Vietnamese recommendation with psychological reasoning (when is audience most receptive?)""
+  }}
+]
+
+Rules:
+- body must be under {_options.MaxBodyLength} characters
+- max {_options.MaxHashtags} hashtags per item
+- NEVER write generic content — every word must feel tailored to this specific persona and audience
+- Return ONLY the raw JSON array, no markdown";
+    }
+
     private string BuildEndpoint()
     {
         var slot = _keyPool.GetNextSlot();
@@ -234,10 +462,11 @@ public class ContentGeneratorService : IContentGeneratorService
         var slot = _keyPool.GetNextSlot();
         var baseUrl = GetBaseUrl(slot.Provider, _options.Endpoint);
         var url = $"{baseUrl}/chat/completions";
+        var model = slot.ModelOverride ?? _options.Model;
 
         var body = new
         {
-            model = _options.Model,
+            model,
             messages = new[] { new { role = "user", content = prompt } },
             temperature,
             max_tokens = maxTokens
@@ -284,7 +513,8 @@ public class ContentGeneratorService : IContentGeneratorService
         List<KnowledgeItem> knowledges,
         PersonaProfile persona,
         int outputCount,
-        List<string>? targetPlatforms)
+        List<string>? targetPlatforms,
+        string? userInstruction = null)
     {
         List<string> platformsToUse;
         if (_options.MultiPlatformEnabled && targetPlatforms != null && targetPlatforms.Count > 0)
@@ -321,13 +551,23 @@ Set ""selectedTrendId"" to ""{preselectedTrend.Id}"" and ""smartMatchReason"" to
             trendSection = "Available Trends (pick the BEST one for this persona):\n" +
                 string.Join("\n", candidateTrends.Select(t =>
                     $"- ID: {t.Id}, Title: {t.Title}, Summary: {(t.Summary?.Length > 150 ? t.Summary[..150] + "..." : t.Summary)}"));
-            trendSelectionInstruction = @"STEP 1 - TREND SELECTION: Analyze the Brand Persona and pick the single MOST compatible trend from the list above.
+            trendSelectionInstruction = @"STEP 1 - TREND SELECTION: Analyze the Brand Persona AND the User Instruction (if any) to pick the single MOST compatible trend from the list above.
 Set ""selectedTrendId"" to the chosen trend's ID (exact Guid string).
 Set ""smartMatchReason"" to a professional Vietnamese explanation of why this trend fits the brand.";
         }
 
+        // Inject user instruction nếu có
+        var userInstructionSection = !string.IsNullOrWhiteSpace(userInstruction)
+            ? $@"
+
+⚡ USER INSTRUCTION (HIGHEST PRIORITY — override defaults if needed):
+{userInstruction.Trim()}
+This instruction takes precedence over general persona defaults. Follow it precisely."
+            : string.Empty;
+
         return $@"You are the world's most powerful AI copywriter, brand strategist, and RAG expert combined.
 Complete ALL of the following steps in a SINGLE response. Return ONLY a raw JSON object — no markdown, no explanation.
+{userInstructionSection}
 
 {trendSelectionInstruction}
 

@@ -45,6 +45,11 @@ public class ContentController : ControllerBase
             return BadRequest(new { code = "CONTENT_PLATFORM_INVALID", message = "Target platforms must not contain null/empty and items must be <= 60 chars." });
         }
 
+        if (request.UserInstruction != null && request.UserInstruction.Length > 1000)
+        {
+            return BadRequest(new { code = "CONTENT_INSTRUCTION_TOO_LONG", message = "userInstruction must be <= 1000 characters." });
+        }
+
         var response = await _service.GenerateAsync(request, ct);
         if (response == null)
         {
