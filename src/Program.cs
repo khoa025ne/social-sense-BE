@@ -100,6 +100,12 @@ builder.Services.AddSingleton<IContextAiExtractor, GeminiContextAiExtractor>();
 builder.Services.AddScoped<ITrendQueryService, TrendQueryService>();
 builder.Services.AddScoped<IContentHistoryService, ContentHistoryService>();
 builder.Services.AddSingleton<ITagTaxonomyService, TagTaxonomyService>();
+builder.Services.AddHttpClient<IImageGenerationService, ImageGenerationService>()
+    .ConfigureHttpClient((sp, client) =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(60);
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
 builder.Services.AddHttpClient<IContentGeneratorService, ContentGeneratorService>()
     .ConfigureHttpClient((sp, client) =>
     {
