@@ -1374,3 +1374,279 @@ Khi khởi động lần đầu (DB trống), hệ thống tự seed:
 | user3-9@socialsense.vn | Password123! | Free | User |
 
 Ngoài ra: 50 Trends, 20 Tags, 10 KnowledgeItems, 50 ContentHistories, 10 UserContexts.
+
+
+---
+
+## 13. Image Generation Wizard — Tạo ảnh banner 3 bước *(MỚI)*
+
+> Tất cả endpoints yêu cầu JWT 🔒. **Không tốn quota** ở bước Analyze.
+
+### Flow tổng quan
+
+```
+Bước 1: ANALYZE          Bước 2: REFINE           Bước 3: GENERATE
+POST /content/image/analyze  →  FE collect answers  →  POST /content/image/generate
+(1 AI call)                     (không gọi BE)          (1-2 AI calls)
+```
+
+---
+
+### 13.1 Bước 1 — Analyze
+
+**`POST /content/image/analyze`** 🔒 — Không tốn quota
+
+**User story:** Sau khi tạo content xong, user nhấn "Tạo hình ảnh". AI đọc content, phân tích ngành nghề, trả về tóm tắt hình ảnh phù hợp + 3 câu hỏi clarifying + draft prompt sơ bộ.
+
+```json
+// Request — dùng contentHistoryId (lấy từ GET /content/history)
+{
+  "contentHistoryId": 23,
+  "platform": "Facebook"
+}
+
+// Request — hoặc truyền thẳng text
+{
+  "contentText": "Chỉ còn 3 lô cuối ven sông Quận 7 — giá tăng 15% sau Tết. Nhắn tin ngay để giữ chỗ!",
+  "platform": "Facebook"
+}
+
+// Response 200
+{
+  "imageSummary": "Banner BĐS cao cấp ven sông Quận 7, tone tối sang trọng, nhấn mạnh vị trí độc đáo và cảm giác khan hiếm. Ánh sáng vàng hoàng hôn phản chiếu trên mặt sông.",
+  "draftPrompt": "Luxury riverside property Ho Chi Minh City, aerial view, golden hour lighting, dark premium aesthetic, modern architecture, river reflection...",
+  "detectedIndustry": "real_estate",
+  "clarifyingQuestions": [
+    {
+      "id": "q1",
+      "question": "Bạn có muốn thêm ảnh thực tế của bất động sản vào banner không?",
+      "type": "yesno"
+    },
+    {
+      "id": "q2",
+      "question": "Tone màu bạn muốn:",
+      "type": "choice",
+      "options": ["Tối & sang trọng", "Sáng & năng động", "Tự nhiên & ấm áp"]
+    },
+    {
+      "id": "q3",
+      "question": "Có muốn thêm text/caption trên banner không? Nếu có, nhập nội dung:",
+      "type": "text_optional"
+    }
+  ],
+  "bannerSpecs": {
+    "platform": "Facebook",
+    "dimensions": "1200x630",
+    "aspectRatio": "1.91:1",
+    "recommendedStyle": "Bold text, high contrast, product-focused"
+  }
+}
+```
+
+**Các loại câu hỏi (`type`):**
+
+| Type | Mô tả | FE render |
+|------|-------|-----------|
+| `yesno` | Có/Không | 2 button |
+| `choice` | Chọn 1 trong nhiều | Radio hoặc button group |
+| `text_optional` | Nhập text tùy chọn | Input field, có thể bỏ trống |
+
+**`detectedIndustry` có thể là:** `real_estate`, `fashion`, `food`, `tech`, `finance`, `beauty`, `fitness`, `education`, `other`
+
+---
+
+### 13.2 Bước 2 — Refine (FE only, không gọi BE)
+
+FE hiển thị UI wizard với các câu hỏi từ bước 1. User trả lời → FE lưu answers vào state.
+
+```
+┌─────────────────────────────────────────────────────┐
+│ 🎨 AI phân tích: Banner BĐS ven sông Quận 7         │
+│ tone tối sang trọng, ánh hoàng hôn trên sông        │
+│                                                     │
+│ ❓ Thêm ảnh thực tế BĐS?    [Có ✓]  [Không]        │
+│ ❓ Tone màu?  [Tối ✓]  [Sáng]  [Tự nhiên]          │
+│ ❓ Caption: [Chỉ còn 3 lô — Giá tăng sau Tết]      │
+│                                                     │
+│              [← Quay lại]  [Tạo ảnh →]             │
+└─────────────────────────────────────────────────────┘
+```
+
+---
+
+### 13.3 Bước 3 — Generate
+
+**`POST /content/image/generate`** 🔒
+
+**User story:** User nhấn "Tạo ảnh" sau khi trả lời câu hỏi. AI build final prompt chuyên nghiệp theo BANNER FORMULA, tinh chỉnh thêm bằng AI, rồi tạo ảnh (nếu có image model key) hoặc trả về prompt để dùng với Midjourney/DALL-E.
+
+```json
+// Request
+{
+  "contentHistoryId": 23,
+  "platform": "Facebook",
+  "draftPrompt": "Luxury riverside property Ho Chi Minh City, aerial view, golden hour lighting...",
+  "detectedIndustry": "real_estate",
+  "answers": {
+    "q1": "yes",
+    "q2": "Tối & sang trọng",
+    "q3": "Chỉ còn 3 lô — Giá tăng sau Tết"
+  }
+}
+
+// Response 200 — khi có image model key
+{
+  "imageUrl": "https://cdn.openai.com/generated/...",
+  "finalPrompt": "Luxury riverside property Ho Chi Minh City, dark luxury, deep charcoal background, gold accents, dramatic lighting, luxury real estate photography, architectural visualization, golden hour lighting, river view background, 1200x630 banner, 1.91:1 aspect ratio, 8K quality, commercial photography, with real product prominently featured, rule of thirds composition, text overlay: 'Chỉ còn 3 lô — Giá tăng sau Tết' in bold white sans-serif font, high contrast, urgency badge 'HOT DEAL' in corner",
+  "bannerSpecs": {
+    "platform": "Facebook",
+    "dimensions": "1200x630",
+    "aspectRatio": "1.91:1",
+    "recommendedStyle": "Bold text, high contrast, product-focused"
+  },
+  "isGenerated": true,
+  "promptUsageTip": null
+}
+
+// Response 200 — khi chưa có image model key (trả về prompt để dùng ngoài)
+{
+  "imageUrl": null,
+  "finalPrompt": "Luxury riverside property Ho Chi Minh City, dark luxury...",
+  "bannerSpecs": { ... },
+  "isGenerated": false,
+  "promptUsageTip": "Copy prompt trên và dùng với: Midjourney (/imagine), DALL-E 3 (ChatGPT Plus), hoặc Adobe Firefly để tạo ảnh miễn phí."
+}
+```
+
+**Khi `isGenerated = false`**, FE nên hiển thị:
+- `finalPrompt` trong textarea để user copy
+- Nút "Copy prompt" + link đến Midjourney/DALL-E
+- `promptUsageTip` như hướng dẫn
+
+---
+
+### 13.4 Platform specs tự động
+
+| Platform | Dimensions | Aspect Ratio |
+|----------|-----------|--------------|
+| Facebook | 1200×630 | 1.91:1 |
+| Instagram | 1080×1080 | 1:1 |
+| TikTok | 1080×1920 | 9:16 |
+| Zalo | 1200×628 | 1.91:1 |
+| LinkedIn | 1200×627 | 1.91:1 |
+| Twitter/X | 1600×900 | 16:9 |
+
+---
+
+### 13.5 Kích hoạt image generation thật
+
+Để `isGenerated = true`, admin cần thêm key có `supportsImageGen = true`:
+
+```json
+POST /admin/api-keys
+{
+  "label": "OpenRouter-GPT4o",
+  "keyValue": "sk-or-v1-YOUR_KEY",
+  "provider": "openrouter",
+  "modelOverride": "openai/gpt-4o",
+  "supportsImageGen": true,
+  "notes": "GPT-4o multimodal image generation"
+}
+```
+
+---
+
+## 14. API Key Management nâng cấp *(CẬP NHẬT)*
+
+### 14.1 Thay đổi so với phiên bản cũ
+
+**Mã hóa AES-256:** Tất cả key được mã hóa trước khi lưu vào DB. FE không bao giờ nhận được giá trị key thật — chỉ nhận `keySuffix` (4 ký tự cuối).
+
+**Fields mới trong `POST /admin/api-keys`:**
+
+```json
+{
+  "label": "OpenRouter-Gemini25",
+  "keyValue": "sk-or-v1-...",
+  "provider": "openrouter",
+  "modelOverride": "google/gemini-2.5-flash-preview:free",
+  "supportsImageGen": false,
+  "notes": "Gemini 2.5 Flash free tier"
+}
+```
+
+| Field mới | Kiểu | Mô tả |
+|-----------|------|-------|
+| `provider` | string | `openrouter` \| `groq` \| `openai` \| `gemini`. Để trống = auto-detect từ key prefix |
+| `modelOverride` | string? | Model ID cụ thể. Null = dùng model mặc định |
+| `supportsImageGen` | bool | Model có hỗ trợ generate ảnh không |
+
+**Response `GET /admin/api-keys` có thêm:**
+
+```json
+{
+  "id": 3,
+  "label": "OpenRouter-Gemini25",
+  "keySuffix": "ae3",
+  "provider": "openrouter",
+  "modelOverride": "google/gemini-2.5-flash-preview:free",
+  "supportsImageGen": false,
+  "isActive": true,
+  "isEncrypted": true,
+  "notes": "Gemini 2.5 Flash free tier"
+}
+```
+
+---
+
+### 14.2 Danh sách models hỗ trợ
+
+**`GET /admin/models`** 🔒 Admin
+
+**User story:** Admin xem danh sách models có thể dùng để cấu hình cho từng key.
+
+```json
+// Response 200
+{
+  "total": 16,
+  "freeModels": [
+    { "provider": "openrouter", "modelId": "meta-llama/llama-4-scout",             "displayName": "Llama 4 Scout (Free)",           "supportsImageGen": false, "isFree": true },
+    { "provider": "openrouter", "modelId": "google/gemini-2.5-flash-preview:free", "displayName": "Gemini 2.5 Flash Preview (Free)", "supportsImageGen": false, "isFree": true },
+    { "provider": "openrouter", "modelId": "deepseek/deepseek-r1:free",            "displayName": "DeepSeek R1 (Free)",             "supportsImageGen": false, "isFree": true },
+    { "provider": "groq",       "modelId": "meta-llama/llama-4-scout-17b-16e-instruct", "displayName": "Llama 4 Scout 17B (Groq)", "supportsImageGen": false, "isFree": true },
+    { "provider": "groq",       "modelId": "llama-3.1-8b-instant",                "displayName": "Llama 3.1 8B Instant (Groq)",    "supportsImageGen": false, "isFree": true }
+  ],
+  "imageModels": [
+    { "provider": "openrouter", "modelId": "openai/gpt-4o",                        "displayName": "GPT-4o (Vision+Text)",           "supportsImageGen": true,  "isFree": false },
+    { "provider": "openrouter", "modelId": "google/gemini-2.0-flash",              "displayName": "Gemini 2.0 Flash (Vision)",      "supportsImageGen": true,  "isFree": false },
+    { "provider": "openrouter", "modelId": "anthropic/claude-3.5-sonnet",          "displayName": "Claude 3.5 Sonnet (Vision)",     "supportsImageGen": true,  "isFree": false }
+  ]
+}
+```
+
+---
+
+## Phụ lục — Changelog
+
+### v2.1 — 30/05/2026 *(mới nhất)*
+
+**Thêm mới:**
+- `POST /content/image/analyze` — Bước 1 Image Wizard: AI phân tích content, trả về imageSummary + clarifyingQuestions + draftPrompt
+- `POST /content/image/generate` — Bước 3 Image Wizard: build final prompt + tạo ảnh (nếu có image key) hoặc trả về prompt
+- `GET /admin/models` — Danh sách free models + image models hỗ trợ
+- `ApiKeyEncryptionService` — Mã hóa AES-256 cho tất cả key trong DB
+
+**Cập nhật:**
+- `POST /admin/api-keys` — Thêm fields: `provider`, `modelOverride`, `supportsImageGen`. Key tự động encrypt khi lưu
+- `PUT /admin/api-keys/{id}` — Hỗ trợ update `provider`, `modelOverride`, `supportsImageGen`
+- `POST /admin/api-keys/bulk` — Encrypt tất cả keys trong batch
+- `GET /admin/api-keys` — Response thêm `isEncrypted`, `modelOverride`, `supportsImageGen`
+- `GET /admin/api-keys/status` — Thêm `modelOverride`, `supportsImageGen` trong key status
+- `GeminiApiKeyPool` — Load `Provider`/`ModelOverride`/`SupportsImageGen` từ DB, decrypt key khi dùng
+
+**Fix:**
+- Xóa User Secrets placeholder đang override `AiProviderKeys` với fake keys
+- `GET /admin/api-keys` crash khi 2 keys có cùng 4 ký tự cuối → fix bằng `GroupBy`
+- AI 401 retry: tự động xoay sang key tiếp theo khi nhận 401 Unauthorized
+- `AllowAutoRedirect = false` trên tất cả AI HttpClients để tránh Authorization header bị strip
+- `PersonaDriven` parse failure: log raw AI text + strengthen JSON-only prompt instruction
