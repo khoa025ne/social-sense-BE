@@ -917,6 +917,11 @@ Return ONLY this raw JSON object (no ```json wrapper):
             var request = requestFactory();
             // Lấy key từ Authorization header (Bearer <key>)
             var usedKey = request.Headers.Authorization?.Parameter ?? string.Empty;
+            _logger.LogDebug("🔑 Attempt {Attempt}: provider={Provider}, url={Url}, keyLen={KeyLen}",
+                attempt,
+                request.Headers.Authorization?.Scheme ?? "none",
+                request.RequestUri?.ToString() ?? "null",
+                usedKey.Length);
             try
             {
                 var response = await _client.SendAsync(request, ct);
@@ -926,6 +931,18 @@ Return ONLY this raw JSON object (no ```json wrapper):
                     _keyPool.MarkRateLimited(usedKey, TimeSpan.FromSeconds(60));
                     _logger.LogWarning("🔄 Key bị rate-limit (429) ở lần {Attempt}/{MaxAttempts}. Xoay sang key tiếp theo...",
                         attempt, maxRetryAttempts);
+                    if (attempt == maxRetryAttempts) return response;
+                    await Task.Delay(200, ct);
+                    continue;
+                }
+
+                // 401 = key không hợp lệ hoặc bị thu hồi → xoay sang key tiếp theo
+                if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                {
+                    var errBody = await response.Content.ReadAsStringAsync(ct);
+                    _logger.LogWarning("🔄 Key bị 401 Unauthorized ở lần {Attempt}/{MaxAttempts}. Body: {Body}. Xoay sang key tiếp theo...",
+                        attempt, maxRetryAttempts, errBody);
+                    _keyPool.MarkRateLimited(usedKey, TimeSpan.FromSeconds(300)); // cooldown 5 phút
                     if (attempt == maxRetryAttempts) return response;
                     await Task.Delay(200, ct);
                     continue;

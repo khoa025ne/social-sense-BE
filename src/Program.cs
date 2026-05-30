@@ -105,6 +105,11 @@ builder.Services.AddHttpClient<IContentGeneratorService, ContentGeneratorService
         var options = sp.GetRequiredService<IOptions<ContentGeneratorOptions>>().Value;
         var timeoutSeconds = Math.Max(options.TimeoutSeconds, 10);
         client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        // Không auto-redirect để tránh Authorization header bị strip khi redirect
+        AllowAutoRedirect = false
     });
 
 builder.Services.Configure<TrendAggregatorOptions>(builder.Configuration.GetSection("TrendAggregator"));
@@ -134,6 +139,10 @@ builder.Services.AddHttpClient<IKnowledgeExtractor, GeminiKnowledgeExtractor>()
         var options = sp.GetRequiredService<IOptions<GeminiOptions>>().Value;
         var timeoutSeconds = Math.Max(options.TimeoutSeconds, 10);
         client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        AllowAutoRedirect = false
     });
 
 builder.Services.AddHttpClient<OpenAiDalleClient>()
@@ -161,6 +170,10 @@ builder.Services.AddHttpClient<GeminiContextAiExtractor>()
         var options = sp.GetRequiredService<IOptions<GeminiOptions>>().Value;
         var timeoutSeconds = Math.Max(options.TimeoutSeconds, 10);
         client.Timeout = TimeSpan.FromSeconds(timeoutSeconds);
+    })
+    .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+    {
+        AllowAutoRedirect = false
     });
 
 var app = builder.Build();

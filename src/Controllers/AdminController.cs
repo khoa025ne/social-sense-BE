@@ -375,7 +375,8 @@ public class AdminController : ControllerBase
             .ToListAsync(ct);
 
         var poolStatuses = _keyPool.GetKeyStatuses()
-            .ToDictionary(s => s.KeySuffix, s => s);
+            .GroupBy(s => s.KeySuffix)
+            .ToDictionary(g => g.Key, g => g.First());
 
         var result = keys.Select(k =>
         {

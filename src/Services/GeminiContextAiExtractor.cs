@@ -236,6 +236,16 @@ Answers:
                     continue;
                 }
 
+                if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                {
+                    var errBody = await response.Content.ReadAsStringAsync(ct);
+                    _logger.LogWarning("🔄 Key 401 Unauthorized (Onboarding) lần {Attempt}/{MaxAttempts}. Body: {Body}. Xoay key...", attempt, maxRetryAttempts, errBody);
+                    _keyPool.MarkRateLimited(usedKey, TimeSpan.FromSeconds(300));
+                    if (attempt == maxRetryAttempts) return response;
+                    await Task.Delay(200, ct);
+                    continue;
+                }
+
                 if (response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable ||
                     response.StatusCode == System.Net.HttpStatusCode.BadGateway)
                 {
