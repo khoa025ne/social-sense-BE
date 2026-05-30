@@ -274,6 +274,7 @@ public class ContentGeneratorService : IContentGeneratorService
                 if (!string.IsNullOrWhiteSpace(text))
                 {
                     var cleaned = StripCodeFence(text);
+                    _logger.LogDebug("PersonaDriven raw AI text (first 500): {Text}", text.Length > 500 ? text[..500] : text);
                     // PersonaDriven trả về mảng items trực tiếp
                     try
                     {
@@ -298,7 +299,7 @@ public class ContentGeneratorService : IContentGeneratorService
                         }
                         catch (JsonException ex2)
                         {
-                            _logger.LogError(ex2, "PersonaDriven: failed to parse response. Raw: {Raw}", text);
+                            _logger.LogError(ex2, "PersonaDriven: failed to parse response. Raw text: {Raw}", text);
                         }
                     }
                 }
@@ -445,11 +446,12 @@ Return ONLY this raw JSON array (no ```json wrapper, no object wrapper):
   }}
 ]
 
-Rules:
+CRITICAL RULES — MUST FOLLOW:
+- Start your response with [ and end with ] — nothing before or after
 - body must be under {_options.MaxBodyLength} characters
 - max {_options.MaxHashtags} hashtags per item
 - NEVER write generic content — every word must feel tailored to this specific persona and audience
-- Return ONLY the raw JSON array, no markdown";
+- NO explanation, NO preamble, NO markdown — ONLY the JSON array";
     }
 
     private string BuildEndpoint()
