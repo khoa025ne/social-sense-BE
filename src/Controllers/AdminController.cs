@@ -19,12 +19,14 @@ public class AdminController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly GeminiApiKeyPool _keyPool;
+    private readonly ApiKeyEncryptionService _encryption;
     private readonly ILogger<AdminController> _logger;
 
-    public AdminController(AppDbContext db, GeminiApiKeyPool keyPool, ILogger<AdminController> logger)
+    public AdminController(AppDbContext db, GeminiApiKeyPool keyPool, ApiKeyEncryptionService encryption, ILogger<AdminController> logger)
     {
         _db = db;
         _keyPool = keyPool;
+        _encryption = encryption;
         _logger = logger;
     }
 
@@ -387,8 +389,11 @@ public class AdminController : ControllerBase
                 Id = k.Id,
                 Label = k.Label,
                 KeySuffix = suffix,
-                Provider = status?.Provider ?? DetectProviderFromNotes(k.Notes, k.KeyValue),
+                Provider = k.Provider,
+                ModelOverride = k.ModelOverride,
+                SupportsImageGen = k.SupportsImageGen,
                 IsActive = k.IsActive,
+                IsEncrypted = k.IsEncrypted,
                 Notes = k.Notes,
                 CreatedAt = k.CreatedAt,
                 UpdatedAt = k.UpdatedAt,
@@ -400,19 +405,38 @@ public class AdminController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>POST /admin/api-keys — Thêm API key mới</summary>
+    /// <summary>POST /admin/api-keys — Thêm API key mới (key được mã hóa AES-256 trước khi lưu)</summary>
     [HttpPost("api-keys")]
     public async Task<IActionResult> AddApiKey([FromBody] CreateApiKeyRequest request, CancellationToken ct)
     {
-        var exists = await _db.ApiKeyConfigs.AnyAsync(k => k.KeyValue == request.KeyValue, ct);
-        if (exists)
-            return BadRequest(new { code = "KEY_ALREADY_EXISTS", message = "Key này đã tồn tại trong hệ thống." });
+        var rawKey = request.KeyValue.Trim();
+
+        // Detect provider nếu không truyền
+        var provider = !string.IsNullOrWhiteSpace(request.Provider)
+            ? request.Provider.Trim().ToLowerInvariant()
+            : DetectProviderFromNotes(request.Notes, rawKey);
+
+        // Kiểm tra trùng key (so sánh trước khi encrypt)
+        var allKeys = await _db.ApiKeyConfigs.AsNoTracking().ToListAsync(ct);
+        foreach (var existing in allKeys)
+        {
+            var existingRaw = existing.IsEncrypted ? _encryption.Decrypt(existing.KeyValue) : existing.KeyValue;
+            if (existingRaw == rawKey)
+                return BadRequest(new { code = "KEY_ALREADY_EXISTS", message = "Key này đã tồn tại trong hệ thống." });
+        }
+
+        // Encrypt key
+        var encryptedKey = _encryption.Encrypt(rawKey);
 
         var key = new ApiKeyConfig
         {
             Label = request.Label.Trim(),
-            KeyValue = request.KeyValue.Trim(),
+            KeyValue = encryptedKey,
+            IsEncrypted = true,
             IsActive = true,
+            Provider = provider,
+            ModelOverride = string.IsNullOrWhiteSpace(request.ModelOverride) ? null : request.ModelOverride.Trim(),
+            SupportsImageGen = request.SupportsImageGen,
             Notes = request.Notes?.Trim(),
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
@@ -420,10 +444,9 @@ public class AdminController : ControllerBase
 
         _db.ApiKeyConfigs.Add(key);
         await _db.SaveChangesAsync(ct);
-
         await _keyPool.ReloadFromDatabaseAsync();
 
-        _logger.LogInformation("Admin added new API key: {Label}", key.Label);
+        _logger.LogInformation("Admin added new API key: {Label} (provider={Provider})", key.Label, provider);
         return Ok(new { message = "Đã thêm API key thành công.", id = key.Id });
     }
 
@@ -433,6 +456,12 @@ public class AdminController : ControllerBase
     {
         if (requests == null || requests.Count == 0)
             return BadRequest(new { code = "EMPTY_REQUEST" });
+
+        // Load tất cả keys hiện có để check trùng
+        var existingKeys = await _db.ApiKeyConfigs.AsNoTracking().ToListAsync(ct);
+        var existingRawKeys = existingKeys
+            .Select(k => k.IsEncrypted ? _encryption.Decrypt(k.KeyValue) : k.KeyValue)
+            .ToHashSet();
 
         var added = 0;
         var skipped = new List<string>();
@@ -445,22 +474,31 @@ public class AdminController : ControllerBase
                 continue;
             }
 
-            var exists = await _db.ApiKeyConfigs.AnyAsync(k => k.KeyValue == req.KeyValue, ct);
-            if (exists)
+            var rawKey = req.KeyValue.Trim();
+            if (existingRawKeys.Contains(rawKey))
             {
                 skipped.Add(req.Label);
                 continue;
             }
 
+            var provider = !string.IsNullOrWhiteSpace(req.Provider)
+                ? req.Provider.Trim().ToLowerInvariant()
+                : DetectProviderFromNotes(req.Notes, rawKey);
+
             _db.ApiKeyConfigs.Add(new ApiKeyConfig
             {
                 Label = req.Label.Trim(),
-                KeyValue = req.KeyValue.Trim(),
+                KeyValue = _encryption.Encrypt(rawKey),
+                IsEncrypted = true,
                 IsActive = true,
+                Provider = provider,
+                ModelOverride = string.IsNullOrWhiteSpace(req.ModelOverride) ? null : req.ModelOverride.Trim(),
+                SupportsImageGen = req.SupportsImageGen,
                 Notes = req.Notes?.Trim(),
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             });
+            existingRawKeys.Add(rawKey);
             added++;
         }
 
@@ -480,13 +518,24 @@ public class AdminController : ControllerBase
 
         if (request.Label != null) key.Label = request.Label.Trim();
         if (request.IsActive.HasValue) key.IsActive = request.IsActive.Value;
+        if (request.Provider != null) key.Provider = request.Provider.Trim().ToLowerInvariant();
+        if (request.ModelOverride != null) key.ModelOverride = string.IsNullOrWhiteSpace(request.ModelOverride) ? null : request.ModelOverride.Trim();
+        if (request.SupportsImageGen.HasValue) key.SupportsImageGen = request.SupportsImageGen.Value;
         if (request.Notes != null) key.Notes = request.Notes.Trim();
+
         if (!string.IsNullOrWhiteSpace(request.KeyValue))
         {
-            var duplicate = await _db.ApiKeyConfigs.AnyAsync(k => k.KeyValue == request.KeyValue && k.Id != id, ct);
-            if (duplicate)
-                return BadRequest(new { code = "KEY_ALREADY_EXISTS", message = "Giá trị key này đã được dùng bởi key khác." });
-            key.KeyValue = request.KeyValue.Trim();
+            var rawKey = request.KeyValue.Trim();
+            // Kiểm tra trùng với key khác
+            var allKeys = await _db.ApiKeyConfigs.AsNoTracking().Where(k => k.Id != id).ToListAsync(ct);
+            foreach (var existing in allKeys)
+            {
+                var existingRaw = existing.IsEncrypted ? _encryption.Decrypt(existing.KeyValue) : existing.KeyValue;
+                if (existingRaw == rawKey)
+                    return BadRequest(new { code = "KEY_ALREADY_EXISTS", message = "Giá trị key này đã được dùng bởi key khác." });
+            }
+            key.KeyValue = _encryption.Encrypt(rawKey);
+            key.IsEncrypted = true;
         }
 
         key.UpdatedAt = DateTime.UtcNow;
@@ -534,6 +583,47 @@ public class AdminController : ControllerBase
             hasKeys = _keyPool.HasKeys,
             allInCooldown = _keyPool.AllKeysInCooldown,
             keys = _keyPool.GetKeyStatuses()
+        });
+    }
+
+    /// <summary>
+    /// GET /admin/models — Danh sách models được hỗ trợ theo provider.
+    /// Bao gồm các free models của OpenRouter và models hỗ trợ generate ảnh.
+    /// </summary>
+    [HttpGet("models")]
+    public IActionResult GetSupportedModels()
+    {
+        var models = new[]
+        {
+            // ── OpenRouter — Free text models ─────────────────────────────────
+            new { provider = "openrouter", modelId = "meta-llama/llama-4-scout",                    displayName = "Llama 4 Scout (Free)",           supportsImageGen = false, isFree = true,  notes = "Fast, good for content generation" },
+            new { provider = "openrouter", modelId = "meta-llama/llama-4-maverick",                 displayName = "Llama 4 Maverick (Free)",         supportsImageGen = false, isFree = true,  notes = "More capable than Scout" },
+            new { provider = "openrouter", modelId = "meta-llama/llama-3.3-70b-instruct",           displayName = "Llama 3.3 70B Instruct (Free)",   supportsImageGen = false, isFree = true,  notes = "High quality, slower" },
+            new { provider = "openrouter", modelId = "google/gemini-2.0-flash-exp:free",            displayName = "Gemini 2.0 Flash Exp (Free)",     supportsImageGen = false, isFree = true,  notes = "Google's fast model" },
+            new { provider = "openrouter", modelId = "google/gemini-2.5-flash-preview:free",        displayName = "Gemini 2.5 Flash Preview (Free)", supportsImageGen = false, isFree = true,  notes = "Latest Gemini preview" },
+            new { provider = "openrouter", modelId = "deepseek/deepseek-r1:free",                   displayName = "DeepSeek R1 (Free)",              supportsImageGen = false, isFree = true,  notes = "Strong reasoning model" },
+            new { provider = "openrouter", modelId = "deepseek/deepseek-chat-v3-0324:free",         displayName = "DeepSeek Chat V3 (Free)",         supportsImageGen = false, isFree = true,  notes = "Fast chat model" },
+            new { provider = "openrouter", modelId = "mistralai/mistral-7b-instruct:free",          displayName = "Mistral 7B Instruct (Free)",      supportsImageGen = false, isFree = true,  notes = "Lightweight, fast" },
+            new { provider = "openrouter", modelId = "qwen/qwen3-235b-a22b:free",                   displayName = "Qwen3 235B (Free)",               supportsImageGen = false, isFree = true,  notes = "Large multilingual model" },
+
+            // ── OpenRouter — Image generation models ──────────────────────────
+            new { provider = "openrouter", modelId = "openai/gpt-4o",                               displayName = "GPT-4o (Vision+Text)",            supportsImageGen = true,  isFree = false, notes = "Multimodal, can analyze images" },
+            new { provider = "openrouter", modelId = "google/gemini-2.0-flash",                     displayName = "Gemini 2.0 Flash (Vision)",        supportsImageGen = true,  isFree = false, notes = "Fast multimodal" },
+            new { provider = "openrouter", modelId = "anthropic/claude-3.5-sonnet",                 displayName = "Claude 3.5 Sonnet (Vision)",       supportsImageGen = true,  isFree = false, notes = "High quality multimodal" },
+
+            // ── Groq — Free text models ───────────────────────────────────────
+            new { provider = "groq", modelId = "meta-llama/llama-4-scout-17b-16e-instruct",         displayName = "Llama 4 Scout 17B (Groq)",        supportsImageGen = false, isFree = true,  notes = "Very fast inference on Groq" },
+            new { provider = "groq", modelId = "llama-3.3-70b-versatile",                           displayName = "Llama 3.3 70B Versatile (Groq)",  supportsImageGen = false, isFree = true,  notes = "High quality on Groq" },
+            new { provider = "groq", modelId = "llama-3.1-8b-instant",                              displayName = "Llama 3.1 8B Instant (Groq)",     supportsImageGen = false, isFree = true,  notes = "Fastest Groq model" },
+            new { provider = "groq", modelId = "qwen/qwen3-32b",                                    displayName = "Qwen3 32B (Groq)",                supportsImageGen = false, isFree = true,  notes = "Strong multilingual" },
+        };
+
+        return Ok(new
+        {
+            total = models.Length,
+            freeModels = models.Where(m => m.isFree).ToList(),
+            imageModels = models.Where(m => m.supportsImageGen).ToList(),
+            allModels = models
         });
     }
 

@@ -91,6 +91,7 @@ var serverVersion = new MySqlServerVersion(new Version(8, 0, 36));
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseMySql(connectionString, serverVersion));
 
+builder.Services.AddSingleton<ApiKeyEncryptionService>();
 builder.Services.AddSingleton<GeminiApiKeyPool>();
 builder.Services.AddScoped<SeedDataService>();
 builder.Services.AddScoped<IContextService, ContextService>();

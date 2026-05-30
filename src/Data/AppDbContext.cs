@@ -136,6 +136,9 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<ApiKeyConfig>(entity =>
         {
             entity.Property(x => x.Id).ValueGeneratedOnAdd();
+            entity.Property(x => x.Provider).HasDefaultValue("openrouter");
+            entity.Property(x => x.IsEncrypted).HasDefaultValue(false);
+            entity.Property(x => x.SupportsImageGen).HasDefaultValue(false);
             entity.HasIndex(x => x.IsActive);
         });
 

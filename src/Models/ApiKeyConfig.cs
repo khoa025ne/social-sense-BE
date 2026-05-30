@@ -4,7 +4,8 @@ using System.ComponentModel.DataAnnotations.Schema;
 namespace SocialSense.Models;
 
 /// <summary>
-/// Lưu trữ Gemini API keys trong database để admin có thể quản lý qua web.
+/// Lưu trữ AI API keys trong database.
+/// KeyValue được mã hóa AES-256 trước khi lưu.
 /// </summary>
 public class ApiKeyConfig
 {
@@ -12,18 +13,30 @@ public class ApiKeyConfig
     [DatabaseGenerated(DatabaseGeneratedOption.Identity)]
     public int Id { get; set; }
 
-    /// <summary>Tên hiển thị để dễ nhận biết, ví dụ: "Key Gmail Phụ 1"</summary>
     [Required]
     [MaxLength(100)]
     public string Label { get; set; } = string.Empty;
 
-    /// <summary>Giá trị API key thực tế</summary>
+    /// <summary>Giá trị API key — được mã hóa AES-256 khi IsEncrypted = true</summary>
     [Required]
-    [MaxLength(200)]
+    [MaxLength(500)]
     public string KeyValue { get; set; } = string.Empty;
 
-    /// <summary>Bật/tắt key này mà không cần xóa</summary>
+    /// <summary>true = KeyValue đang được mã hóa AES-256</summary>
+    public bool IsEncrypted { get; set; } = false;
+
     public bool IsActive { get; set; } = true;
+
+    /// <summary>openrouter | groq | openai | gemini</summary>
+    [MaxLength(50)]
+    public string Provider { get; set; } = "openrouter";
+
+    /// <summary>Model ID override. Null = dùng model mặc định của provider.</summary>
+    [MaxLength(200)]
+    public string? ModelOverride { get; set; }
+
+    /// <summary>Model này có hỗ trợ generate ảnh không (multimodal)</summary>
+    public bool SupportsImageGen { get; set; } = false;
 
     /// <summary>Ghi chú tùy ý của admin</summary>
     [MaxLength(500)]

@@ -19,19 +19,17 @@ public class GeminiApiKeyPool
     private readonly IConfiguration _configuration;
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<GeminiApiKeyPool> _logger;
+    private readonly ApiKeyEncryptionService _encryption;
     private readonly SemaphoreSlim _reloadLock = new(1, 1);
 
     public class KeySlot
     {
         public string Key { get; init; } = string.Empty;
         public string Label { get; init; } = string.Empty;
-        /// <summary>openrouter | groq | gemini | openai — dùng để build Authorization header đúng cách</summary>
         public string Provider { get; init; } = "openrouter";
-        /// <summary>
-        /// Model ID riêng cho slot này. Nếu null, service sẽ dùng model mặc định từ Options.
-        /// Dùng khi mỗi provider có model ID khác nhau (vd: Groq dùng full ID, OpenRouter dùng short ID).
-        /// </summary>
         public string? ModelOverride { get; init; }
+        /// <summary>Model này có hỗ trợ generate ảnh không</summary>
+        public bool SupportsImageGen { get; init; } = false;
         public DateTime CooldownUntil { get; set; } = DateTime.MinValue;
     }
 
@@ -47,10 +45,12 @@ public class GeminiApiKeyPool
     public GeminiApiKeyPool(
         IConfiguration configuration,
         IServiceScopeFactory scopeFactory,
+        ApiKeyEncryptionService encryption,
         ILogger<GeminiApiKeyPool> logger)
     {
         _configuration = configuration;
         _scopeFactory = scopeFactory;
+        _encryption = encryption;
         _logger = logger;
 
         _slots = LoadFromConfig();
@@ -116,7 +116,11 @@ public class GeminiApiKeyPool
             var dbKeys = db.ApiKeyConfigs
                 .Where(k => k.IsActive)
                 .OrderBy(k => k.CreatedAt)
-                .Select(k => new { k.Label, k.KeyValue, k.Notes })
+                .Select(k => new
+                {
+                    k.Label, k.KeyValue, k.IsEncrypted,
+                    k.Provider, k.ModelOverride, k.SupportsImageGen, k.Notes
+                })
                 .ToList();
 
             if (dbKeys.Count == 0)
@@ -129,16 +133,36 @@ public class GeminiApiKeyPool
 
             _slots = dbKeys.Select((k, i) =>
             {
-                // Detect provider từ Notes hoặc prefix của key
-                var provider = DetectProvider(k.KeyValue, k.Notes);
+                // Decrypt key nếu đang được mã hóa
+                string plainKey;
+                try
+                {
+                    plainKey = k.IsEncrypted ? _encryption.Decrypt(k.KeyValue) : k.KeyValue;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to decrypt key {Label} — skipping.", k.Label);
+                    return null;
+                }
+
+                // Provider: ưu tiên field Provider, fallback detect từ Notes/prefix
+                var provider = !string.IsNullOrWhiteSpace(k.Provider)
+                    ? k.Provider.ToLowerInvariant()
+                    : DetectProvider(plainKey, k.Notes);
+
                 return new KeySlot
                 {
-                    Key = k.KeyValue,
-                    Label = $"DB-{k.Label} (...{k.KeyValue[^4..]})",
+                    Key = plainKey,
+                    Label = $"DB-{k.Label} (...{plainKey[^Math.Min(4, plainKey.Length)..]})",
                     Provider = provider,
-                    CooldownUntil = oldCooldowns.TryGetValue(k.KeyValue, out var cd) ? cd : DateTime.MinValue
+                    ModelOverride = string.IsNullOrWhiteSpace(k.ModelOverride) ? null : k.ModelOverride,
+                    SupportsImageGen = k.SupportsImageGen,
+                    CooldownUntil = oldCooldowns.TryGetValue(plainKey, out var cd) ? cd : DateTime.MinValue
                 };
-            }).ToArray();
+            })
+            .Where(s => s != null)
+            .Cast<KeySlot>()
+            .ToArray();
 
             _counter = 0;
 
@@ -237,9 +261,19 @@ public class GeminiApiKeyPool
             Label = s.Label,
             KeySuffix = s.Key.Length >= 4 ? s.Key[^4..] : s.Key,
             Provider = s.Provider,
+            ModelOverride = s.ModelOverride,
+            SupportsImageGen = s.SupportsImageGen,
             IsInCooldown = s.CooldownUntil > now,
             CooldownExpiresAt = s.CooldownUntil > now ? s.CooldownUntil : null
         }).ToList();
+    }
+
+    /// <summary>Lấy slot hỗ trợ image generation (nếu có), fallback về slot thường.</summary>
+    public KeySlot GetImageSlot()
+    {
+        var now = DateTime.UtcNow;
+        var imageSlot = _slots.FirstOrDefault(s => s.SupportsImageGen && s.CooldownUntil <= now);
+        return imageSlot ?? GetNextSlot();
     }
 
     public class KeyStatus
@@ -247,6 +281,8 @@ public class GeminiApiKeyPool
         public string Label { get; init; } = string.Empty;
         public string KeySuffix { get; init; } = string.Empty;
         public string Provider { get; init; } = string.Empty;
+        public string? ModelOverride { get; init; }
+        public bool SupportsImageGen { get; init; }
         public bool IsInCooldown { get; init; }
         public DateTime? CooldownExpiresAt { get; init; }
     }

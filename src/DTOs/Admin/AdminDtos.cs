@@ -57,15 +57,15 @@ public class ApiKeyResponse
 {
     public int Id { get; set; }
     public string Label { get; set; } = string.Empty;
-    /// <summary>Chỉ trả về 4 ký tự cuối để bảo mật.</summary>
     public string KeySuffix { get; set; } = string.Empty;
-    /// <summary>openrouter | groq | openai | gemini</summary>
     public string Provider { get; set; } = string.Empty;
+    public string? ModelOverride { get; set; }
+    public bool SupportsImageGen { get; set; }
     public bool IsActive { get; set; }
+    public bool IsEncrypted { get; set; }
     public string? Notes { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
-    // Runtime status từ pool
     public bool IsInCooldown { get; set; }
     public DateTime? CooldownExpiresAt { get; set; }
 }
@@ -75,8 +75,19 @@ public class CreateApiKeyRequest
     [Required, MaxLength(100)]
     public string Label { get; set; } = string.Empty;
 
-    [Required, MaxLength(200)]
+    [Required, MaxLength(500)]
     public string KeyValue { get; set; } = string.Empty;
+
+    /// <summary>openrouter | groq | openai | gemini. Để trống = auto-detect từ key prefix.</summary>
+    [MaxLength(50)]
+    public string? Provider { get; set; }
+
+    /// <summary>Model ID cụ thể. Null = dùng model mặc định của provider.</summary>
+    [MaxLength(200)]
+    public string? ModelOverride { get; set; }
+
+    /// <summary>Model này có hỗ trợ generate ảnh không</summary>
+    public bool SupportsImageGen { get; set; } = false;
 
     [MaxLength(500)]
     public string? Notes { get; set; }
@@ -89,11 +100,18 @@ public class UpdateApiKeyRequest
 
     public bool? IsActive { get; set; }
 
+    [MaxLength(50)]
+    public string? Provider { get; set; }
+
+    [MaxLength(200)]
+    public string? ModelOverride { get; set; }
+
+    public bool? SupportsImageGen { get; set; }
+
     [MaxLength(500)]
     public string? Notes { get; set; }
 
-    /// <summary>Nếu cung cấp, thay thế giá trị key.</summary>
-    [MaxLength(200)]
+    [MaxLength(500)]
     public string? KeyValue { get; set; }
 }
 
