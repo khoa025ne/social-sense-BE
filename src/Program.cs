@@ -214,11 +214,9 @@ using (var scope = app.Services.CreateScope())
 var keyPool = app.Services.GetRequiredService<GeminiApiKeyPool>();
 await keyPool.ReloadFromDatabaseAsync();
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+// Swagger bật trên tất cả môi trường để tiện test
+app.UseSwagger();
+app.UseSwaggerUI();
 
 app.UseCors("AllowAll");
 
