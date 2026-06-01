@@ -60,17 +60,35 @@ public class SmtpEmailService : IEmailService
     // ── Helper gửi mail ──────────────────────────────────────────────────────
     private async Task SendAsync(MimeMessage message, string toEmail, string type, CancellationToken ct)
     {
+        // Dùng timeout riêng 30s — không dùng request CT vì request có thể cancel sớm
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(30));
+
         using var client = new SmtpClient();
         try
         {
-            await client.ConnectAsync(_opts.Host, _opts.Port, SecureSocketOptions.StartTls, ct);
-            await client.AuthenticateAsync(_opts.Username, _opts.Password, ct);
-            await client.SendAsync(message, ct);
+            // Thử port 587 (STARTTLS) trước, fallback sang 465 (SSL) nếu fail
+            // Render thường block 587 nhưng cho phép 465
+            try
+            {
+                await client.ConnectAsync(_opts.Host, _opts.Port, SecureSocketOptions.StartTls, cts.Token);
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or System.Net.Sockets.SocketException or MailKit.Security.SslHandshakeException)
+            {
+                _logger.LogWarning("SMTP port {Port} failed ({Msg}), retrying with port 465 SSL...", _opts.Port, ex.Message);
+                if (client.IsConnected) await client.DisconnectAsync(true, CancellationToken.None);
+                // Fallback: port 465 với SslOnConnect
+                await client.ConnectAsync(_opts.Host, 465, SecureSocketOptions.SslOnConnect, cts.Token);
+            }
+
+            await client.AuthenticateAsync(_opts.Username, _opts.Password, cts.Token);
+            await client.SendAsync(message, cts.Token);
             _logger.LogInformation("{Type} email sent to {Email}", type, toEmail);
         }
         finally
         {
-            await client.DisconnectAsync(true, ct);
+            if (client.IsConnected)
+                await client.DisconnectAsync(true, CancellationToken.None);
         }
     }
 
