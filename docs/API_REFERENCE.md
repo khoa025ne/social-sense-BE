@@ -1540,19 +1540,35 @@ FE hiển thị UI wizard với các câu hỏi từ bước 1. User trả lời
 
 ### 13.5 Kích hoạt image generation thật
 
-Để `isGenerated = true`, admin cần thêm key có `supportsImageGen = true`:
+Để `isGenerated = true`, admin cần thêm key có `supportsImageGen = true` và `modelOverride` trỏ đến image model.
+
+**Model free hỗ trợ tạo ảnh trên OpenRouter:**
+
+| Model ID | Tên | Free? | Chất lượng |
+|----------|-----|-------|-----------|
+| `x-ai/grok-imagine-image-quality` | Grok Imagine Image Quality | ✅ Free | Photorealistic 1K/2K |
+| `openai/gpt-4o` | GPT-4o | ❌ Trả phí | Multimodal cao cấp |
+| `google/gemini-2.0-flash` | Gemini 2.0 Flash | ❌ Trả phí | Nhanh, đa phương thức |
+
+**Thêm key Grok Image (free):**
 
 ```json
 POST /admin/api-keys
 {
-  "label": "OpenRouter-GPT4o",
-  "keyValue": "sk-or-v1-YOUR_KEY",
+  "label": "OpenRouter-Grok-Image",
+  "keyValue": "sk-or-v1-YOUR_KEY_HERE",
   "provider": "openrouter",
-  "modelOverride": "openai/gpt-4o",
+  "modelOverride": "x-ai/grok-imagine-image-quality",
   "supportsImageGen": true,
-  "notes": "GPT-4o multimodal image generation"
+  "notes": "Grok free image generation — photorealistic 1K/2K"
 }
 ```
+
+**Cơ chế hoạt động:**
+- Gọi `/api/v1/chat/completions` với `modalities: ["image"]`
+- Response trả về ảnh dạng base64 data URL hoặc hosted URL
+- `imageUrl` trong response có thể là `data:image/png;base64,...` hoặc `https://...`
+- FE cần xử lý cả 2 dạng khi hiển thị ảnh
 
 ---
 
@@ -1617,9 +1633,10 @@ POST /admin/api-keys
     { "provider": "groq",       "modelId": "llama-3.1-8b-instant",                "displayName": "Llama 3.1 8B Instant (Groq)",    "supportsImageGen": false, "isFree": true }
   ],
   "imageModels": [
-    { "provider": "openrouter", "modelId": "openai/gpt-4o",                        "displayName": "GPT-4o (Vision+Text)",           "supportsImageGen": true,  "isFree": false },
-    { "provider": "openrouter", "modelId": "google/gemini-2.0-flash",              "displayName": "Gemini 2.0 Flash (Vision)",      "supportsImageGen": true,  "isFree": false },
-    { "provider": "openrouter", "modelId": "anthropic/claude-3.5-sonnet",          "displayName": "Claude 3.5 Sonnet (Vision)",     "supportsImageGen": true,  "isFree": false }
+    { "provider": "openrouter", "modelId": "x-ai/grok-imagine-image-quality",     "displayName": "Grok Imagine Image Quality (Free)", "supportsImageGen": true,  "isFree": true  },
+    { "provider": "openrouter", "modelId": "openai/gpt-4o",                        "displayName": "GPT-4o (Vision+Text)",              "supportsImageGen": true,  "isFree": false },
+    { "provider": "openrouter", "modelId": "google/gemini-2.0-flash",              "displayName": "Gemini 2.0 Flash (Vision)",         "supportsImageGen": true,  "isFree": false },
+    { "provider": "openrouter", "modelId": "anthropic/claude-3.5-sonnet",          "displayName": "Claude 3.5 Sonnet (Vision)",        "supportsImageGen": true,  "isFree": false }
   ]
 }
 ```
