@@ -606,7 +606,7 @@ public class AdminController : ControllerBase
             new { provider = "openrouter", modelId = "mistralai/mistral-7b-instruct:free",          displayName = "Mistral 7B Instruct (Free)",      supportsImageGen = false, isFree = true,  notes = "Lightweight, fast" },
             new { provider = "openrouter", modelId = "qwen/qwen3-235b-a22b:free",                   displayName = "Qwen3 235B (Free)",               supportsImageGen = false, isFree = true,  notes = "Large multilingual model" },
 
-            // ── OpenRouter — Image generation models ──────────────────────────
+    new { provider = "openrouter", modelId = "x-ai/grok-imagine-image-quality",              displayName = "Grok Imagine Image Quality (Free)", supportsImageGen = true,  isFree = true,  notes = "xAI free image generation, photorealistic 1K/2K" },
             new { provider = "openrouter", modelId = "openai/gpt-4o",                               displayName = "GPT-4o (Vision+Text)",            supportsImageGen = true,  isFree = false, notes = "Multimodal, can analyze images" },
             new { provider = "openrouter", modelId = "google/gemini-2.0-flash",                     displayName = "Gemini 2.0 Flash (Vision)",        supportsImageGen = true,  isFree = false, notes = "Fast multimodal" },
             new { provider = "openrouter", modelId = "anthropic/claude-3.5-sonnet",                 displayName = "Claude 3.5 Sonnet (Vision)",       supportsImageGen = true,  isFree = false, notes = "High quality multimodal" },

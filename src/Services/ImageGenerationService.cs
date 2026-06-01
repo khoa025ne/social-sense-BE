@@ -273,10 +273,93 @@ Enhancement rules:
     private async Task<string?> TryGenerateImageAsync(
         string prompt, GeminiApiKeyPool.KeySlot slot, CancellationToken ct)
     {
-        // Hiện tại OpenRouter image generation dùng endpoint khác
-        // Placeholder — tích hợp thực tế khi có image model key
-        _logger.LogInformation("Image generation requested with slot {Label} — feature coming soon", slot.Label);
-        return null;
+        try
+        {
+            // OpenRouter image generation: dùng /chat/completions với modalities: ["image"]
+            // Model: x-ai/grok-imagine-image-quality hoặc bất kỳ image model nào
+            var model = slot.ModelOverride ?? "x-ai/grok-imagine-image-quality";
+
+            var body = new
+            {
+                model,
+                messages = new[]
+                {
+                    new { role = "user", content = prompt }
+                },
+                modalities = new[] { "image" }
+            };
+
+            var baseUrl = slot.Provider switch
+            {
+                "groq" => "https://api.groq.com/openai/v1",
+                "openai" => "https://api.openai.com/v1",
+                _ => "https://openrouter.ai/api/v1"
+            };
+
+            var msg = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/chat/completions")
+            {
+                Content = new StringContent(
+                    System.Text.Json.JsonSerializer.Serialize(body),
+                    Encoding.UTF8, "application/json")
+            };
+            msg.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", slot.Key);
+            if (slot.Provider == "openrouter" || string.IsNullOrEmpty(slot.Provider))
+            {
+                msg.Headers.TryAddWithoutValidation("HTTP-Referer", "https://socialsense.app");
+                msg.Headers.TryAddWithoutValidation("X-Title", "SocialSense");
+            }
+
+            using var response = await _client.SendAsync(msg, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                var err = await response.Content.ReadAsStringAsync(ct);
+                _logger.LogWarning("Image generation failed: {Status} — {Body}", response.StatusCode, err);
+                return null;
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            using var doc = await System.Text.Json.JsonDocument.ParseAsync(stream, cancellationToken: ct);
+
+            // OpenRouter trả về ảnh dạng base64 data URL trong choices[0].message.content
+            // Format: [{ "type": "image_url", "image_url": { "url": "data:image/png;base64,..." } }]
+            if (doc.RootElement.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
+            {
+                var message = choices[0].GetProperty("message");
+
+                // Content có thể là string hoặc array
+                if (message.TryGetProperty("content", out var content))
+                {
+                    if (content.ValueKind == System.Text.Json.JsonValueKind.String)
+                    {
+                        var text = content.GetString() ?? string.Empty;
+                        // Nếu là data URL trực tiếp
+                        if (text.StartsWith("data:image"))
+                            return text;
+                    }
+                    else if (content.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    {
+                        foreach (var item in content.EnumerateArray())
+                        {
+                            if (item.TryGetProperty("type", out var type) &&
+                                type.GetString() == "image_url" &&
+                                item.TryGetProperty("image_url", out var imageUrl) &&
+                                imageUrl.TryGetProperty("url", out var url))
+                            {
+                                return url.GetString();
+                            }
+                        }
+                    }
+                }
+            }
+
+            _logger.LogWarning("Image generation: unexpected response format from {Model}", model);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "TryGenerateImageAsync error");
+            return null;
+        }
     }
 
     // ── Industry tricks ───────────────────────────────────────────────────────
