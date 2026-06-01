@@ -365,6 +365,72 @@ public class AuthController : ControllerBase
         return Ok(new { message = "Mật khẩu đã được đặt lại thành công. Vui lòng đăng nhập lại." });
     }
 
+    // ── PUT /auth/change-password ─────────────────────────────────────────────
+    /// <summary>Đổi mật khẩu — yêu cầu mật khẩu hiện tại. Sau khi thành công revoke tất cả refresh token.</summary>
+    [HttpPut("change-password")]
+    [Authorize]
+    public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest request, CancellationToken ct)
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var user = await _db.Users.FindAsync(new object[] { userId }, ct);
+        if (user == null)
+            return BadRequest(new { code = "USER_NOT_FOUND", message = "Tài khoản không tồn tại." });
+
+        // Verify mật khẩu hiện tại
+        if (!PasswordHelper.VerifyPassword(request.CurrentPassword, user.PasswordHash))
+            return BadRequest(new { code = "AUTH_WRONG_PASSWORD", message = "Mật khẩu hiện tại không đúng." });
+
+        // Không cho đặt lại mật khẩu giống cũ
+        if (PasswordHelper.VerifyPassword(request.NewPassword, user.PasswordHash))
+            return BadRequest(new { code = "AUTH_SAME_PASSWORD", message = "Mật khẩu mới không được trùng với mật khẩu hiện tại." });
+
+        // Hash mật khẩu mới
+        user.PasswordHash = PasswordHelper.HashPassword(request.NewPassword);
+        user.UpdatedAt = DateTime.UtcNow;
+
+        // Revoke tất cả refresh token → bắt đăng nhập lại
+        var activeTokens = await _db.UserTokens
+            .Where(t => t.UserId == userId && !t.IsRevoked)
+            .ToListAsync(ct);
+        foreach (var token in activeTokens)
+        {
+            token.IsRevoked = true;
+            token.RevokedAt = DateTime.UtcNow;
+        }
+
+        await _db.SaveChangesAsync(ct);
+        _logger.LogInformation("User {UserId} changed password successfully", userId);
+
+        return Ok(new { message = "Đổi mật khẩu thành công. Vui lòng đăng nhập lại." });
+    }
+
+    // ── PUT /auth/profile ─────────────────────────────────────────────────────
+    /// <summary>Cập nhật thông tin profile (displayName). Trả về thông tin mới sau khi cập nhật.</summary>
+    [HttpPut("profile")]
+    [Authorize]
+    public async Task<IActionResult> UpdateProfile([FromBody] UpdateProfileRequest request, CancellationToken ct)
+    {
+        var userId = int.Parse(User.FindFirstValue(ClaimTypes.NameIdentifier)!);
+        var user = await _db.Users.FindAsync(new object[] { userId }, ct);
+        if (user == null)
+            return BadRequest(new { code = "USER_NOT_FOUND", message = "Tài khoản không tồn tại." });
+
+        var displayName = request.DisplayName?.Trim();
+        if (string.IsNullOrWhiteSpace(displayName) || displayName.Length < 2 || displayName.Length > 160)
+            return BadRequest(new { code = "INVALID_DISPLAY_NAME", message = "Tên hiển thị phải từ 2 đến 160 ký tự." });
+
+        user.DisplayName = displayName;
+        user.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync(ct);
+
+        return Ok(new
+        {
+            message = "Cập nhật thông tin thành công.",
+            displayName = user.DisplayName,
+            email = user.Email
+        });
+    }
+
     private string GenerateAccessToken(User user)
     {
         var tokenHandler = new JwtSecurityTokenHandler();

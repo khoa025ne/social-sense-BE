@@ -10,7 +10,7 @@
 | Môi trường | URL |
 |-----------|-----|
 | **Development (local)** | `http://localhost:5280` |
-| **Production (Render)** | `https://_____________________.onrender.com` |
+| **Production (Render)** | `https://social-sense-be.onrender.com` |
 | **Custom domain (nếu có)** | `https://api._____________________.com` |
 
 ---

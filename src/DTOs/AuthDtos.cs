@@ -82,3 +82,20 @@ public class ResetPasswordRequest
     [MinLength(6)]
     public string NewPassword { get; set; } = string.Empty;
 }
+
+public class ChangePasswordRequest
+{
+    [Required]
+    public string CurrentPassword { get; set; } = string.Empty;
+
+    [Required]
+    [MinLength(6)]
+    public string NewPassword { get; set; } = string.Empty;
+}
+
+public class UpdateProfileRequest
+{
+    [Required]
+    [StringLength(160, MinimumLength = 2)]
+    public string DisplayName { get; set; } = string.Empty;
+}

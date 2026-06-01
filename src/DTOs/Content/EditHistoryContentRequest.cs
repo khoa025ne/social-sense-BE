@@ -5,10 +5,12 @@ namespace SocialSense.DTOs.Content;
 
 public class EditHistoryContentRequest
 {
-    public string? Title { get; set; }
+    public string? Hook { get; set; }
 
     [Required(AllowEmptyStrings = false)]
     public string Body { get; set; } = string.Empty;
+
+    public string? Cta { get; set; }
 
     public List<string>? Hashtags { get; set; }
 }

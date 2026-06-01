@@ -198,6 +198,7 @@ public class GeminiApiKeyPool
         if (keyValue.StartsWith("gsk_")) return "groq";
         if (keyValue.StartsWith("sk-")) return "openai";
         if (keyValue.StartsWith("AIza")) return "gemini";
+        if (keyValue.StartsWith("hf_")) return "huggingface";
         return "openrouter";
     }
 
@@ -279,14 +280,23 @@ public class GeminiApiKeyPool
     }
 
     /// <summary>
-    /// Lấy key của Pollinations.ai từ DB (provider = "pollinations").
-    /// Trả về null nếu chưa có key nào trong DB.
+    /// Lấy tất cả key Pollinations.ai active từ DB để rotate khi key hết balance.
+    /// </summary>
+    public IReadOnlyList<string> GetPollinationsKeys()
+    {
+        return _slots
+            .Where(s => string.Equals(s.Provider, "pollinations", StringComparison.OrdinalIgnoreCase)
+                        && s.CooldownUntil <= DateTime.UtcNow)
+            .Select(s => s.Key)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Lấy key đầu tiên của Pollinations.ai (backward compat).
     /// </summary>
     public string? GetPollinationsKey()
     {
-        var slot = _slots.FirstOrDefault(s =>
-            string.Equals(s.Provider, "pollinations", StringComparison.OrdinalIgnoreCase));
-        return slot?.Key;
+        return GetPollinationsKeys().FirstOrDefault();
     }
 
     public class KeyStatus

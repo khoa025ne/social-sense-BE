@@ -392,49 +392,85 @@ Enhancement rules:
         }
     }
 
-    // ── Pollinations.ai — key lấy từ DB (provider = "pollinations") ──────────
-    // Admin thêm key qua POST /admin/api-keys với provider="pollinations"
-    // GET https://image.pollinations.ai/prompt/{prompt}?token=KEY → trả về ảnh trực tiếp
+    // ── Pollinations.ai — download ảnh tại BE, trả base64 về FE ──────────────
+    // Lý do: Android fetch/OkHttp không handle được URL dài + long-polling của Pollinations
+    // BE download ảnh → convert base64 → FE dùng data URI trực tiếp, không cần fetch thêm
     private async Task<string?> TryGenerateImagePollinationsAsync(
         string prompt, BannerSpecs specs, CancellationToken ct)
     {
         try
         {
-            // Parse width/height từ specs (vd: "1200x630"), max 1280px
             var dims = specs.Dimensions.Split('x');
             var width  = dims.Length > 0 && int.TryParse(dims[0], out var w) ? Math.Min(w, 1280) : 1200;
             var height = dims.Length > 1 && int.TryParse(dims[1], out var h) ? Math.Min(h, 1280) : 630;
-
-            var encodedPrompt = Uri.EscapeDataString(prompt); // giữ để tương thích, không dùng cho URL
             var seed = Random.Shared.Next(1, 99999);
 
-            // Lấy key từ pool (admin thêm qua /admin/api-keys)
-            var pollinationsKey = _keyPool.GetPollinationsKey();
+            var safePrompt = prompt.Replace("\r\n", " ").Replace("\n", " ").Replace("\r", " ");
+            var encodedPrompt = Uri.EscapeDataString(safePrompt);
 
-            // Build URL — thêm token nếu có key (rate limit cao hơn, nologo, enhance)
-            // Lưu ý: KHÔNG encode toàn bộ prompt bằng Uri.EscapeDataString vì sẽ encode cả dấu : trong aspect ratio
-            // Dùng replace thủ công cho các ký tự đặc biệt trong prompt
-            var safePrompt = prompt
-                .Replace("#", "%23")
-                .Replace("&", "%26")
-                .Replace("+", "%2B")
-                .Replace("?", "%3F");
-            // Encode spaces thành %20, giữ nguyên các ký tự khác
-            safePrompt = Uri.EscapeUriString(safePrompt);
+            var pollinationsKeys = _keyPool.GetPollinationsKeys();
+            _logger.LogInformation("Generating image via Pollinations.ai ({W}x{H}, keys={Count})",
+                width, height, pollinationsKeys.Count);
 
-            var url = string.IsNullOrWhiteSpace(pollinationsKey)
-                ? $"https://image.pollinations.ai/prompt/{safePrompt}?width={width}&height={height}&seed={seed}&nologo=true&model=flux"
-                : $"https://image.pollinations.ai/prompt/{safePrompt}?width={width}&height={height}&seed={seed}&nologo=true&model=flux&enhance=true&token={pollinationsKey}";
+            var keysToTry = pollinationsKeys.Count > 0
+                ? pollinationsKeys
+                : (IReadOnlyList<string>)new List<string> { string.Empty };
 
-            _logger.LogInformation("Generating image via Pollinations.ai ({W}x{H}, authenticated={HasKey})",
-                width, height, !string.IsNullOrWhiteSpace(pollinationsKey));
+            foreach (var key in keysToTry)
+            {
+                var url = string.IsNullOrWhiteSpace(key)
+                    ? $"https://image.pollinations.ai/prompt/{encodedPrompt}?width={width}&height={height}&seed={seed}&nologo=true&model=flux"
+                    : $"https://image.pollinations.ai/prompt/{encodedPrompt}?width={width}&height={height}&seed={seed}&nologo=true&model=flux&enhance=true&token={key}";
 
-            // HEAD request để verify URL hợp lệ trước khi trả về FE
-            var headReq = new HttpRequestMessage(HttpMethod.Head, url);
-            using var headResp = await _client.SendAsync(headReq, ct);
+                try
+                {
+                    // GET trực tiếp — Pollinations generate và trả ảnh trong 1 request (15-60s)
+                    using var getReq = new HttpRequestMessage(HttpMethod.Get, url);
+                    using var getResp = await _client.SendAsync(getReq, HttpCompletionOption.ResponseHeadersRead, ct);
 
-            _logger.LogInformation("Pollinations HEAD → {Status}", (int)headResp.StatusCode);
-            return url;
+                    var statusCode = (int)getResp.StatusCode;
+                    _logger.LogInformation("Pollinations GET → {Status} (key=****{Suffix})",
+                        statusCode, key.Length >= 4 ? key[^4..] : "none");
+
+                    if (statusCode == 402)
+                    {
+                        _logger.LogWarning("Pollinations key ****{Suffix} hết balance, thử key tiếp",
+                            key.Length >= 4 ? key[^4..] : "none");
+                        if (!string.IsNullOrWhiteSpace(key))
+                            _keyPool.MarkRateLimited(key, TimeSpan.FromHours(24));
+                        continue;
+                    }
+
+                    if (!getResp.IsSuccessStatusCode)
+                    {
+                        _logger.LogWarning("Pollinations GET failed: {Status}", statusCode);
+                        return null;
+                    }
+
+                    // Download bytes và convert sang base64 data URL
+                    var imageBytes = await getResp.Content.ReadAsByteArrayAsync(ct);
+                    if (imageBytes.Length < 1000)
+                    {
+                        _logger.LogWarning("Pollinations trả ảnh quá nhỏ ({Bytes} bytes), bỏ qua", imageBytes.Length);
+                        return null;
+                    }
+
+                    var contentType = getResp.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
+                    var base64 = Convert.ToBase64String(imageBytes);
+                    _logger.LogInformation("Pollinations ảnh OK: {Bytes} bytes → base64 {B64Len} chars",
+                        imageBytes.Length, base64.Length);
+
+                    return $"data:{contentType};base64,{base64}";
+                }
+                catch (TaskCanceledException)
+                {
+                    _logger.LogWarning("Pollinations request bị cancel (user navigate đi hoặc timeout)");
+                    return null;
+                }
+            }
+
+            _logger.LogWarning("Tất cả Pollinations keys đều hết balance");
+            return null;
         }
         catch (Exception ex)
         {

@@ -498,10 +498,12 @@ CRITICAL RULES — MUST FOLLOW:
     {
         return provider switch
         {
-            "groq" => "https://api.groq.com/openai/v1",
-            "openai" => "https://api.openai.com/v1",
-            "openrouter" => "https://openrouter.ai/api/v1",
-            _ => configEndpoint.TrimEnd('/')
+            "groq"         => "https://api.groq.com/openai/v1",
+            "openai"       => "https://api.openai.com/v1",
+            "openrouter"   => "https://openrouter.ai/api/v1",
+            "pollinations" => "https://gen.pollinations.ai/v1",
+            "huggingface"  => "https://api-inference.huggingface.co/v1",
+            _              => configEndpoint.TrimEnd('/')
         };
     }
 
@@ -945,6 +947,18 @@ Return ONLY this raw JSON object (no ```json wrapper):
                     _logger.LogWarning("🔄 Key bị 401 Unauthorized ở lần {Attempt}/{MaxAttempts}. Body: {Body}. Xoay sang key tiếp theo...",
                         attempt, maxRetryAttempts, errBody);
                     _keyPool.MarkRateLimited(usedKey, TimeSpan.FromSeconds(300)); // cooldown 5 phút
+                    if (attempt == maxRetryAttempts) return response;
+                    await Task.Delay(200, ct);
+                    continue;
+                }
+
+                // 402 = account hết credits (OpenRouter) → key này không dùng được, xoay sang key khác
+                if (response.StatusCode == System.Net.HttpStatusCode.PaymentRequired)
+                {
+                    var errBody = await response.Content.ReadAsStringAsync(ct);
+                    _logger.LogWarning("🔄 Key bị 402 PaymentRequired ở lần {Attempt}/{MaxAttempts}. Body: {Body}. Xoay sang key tiếp theo...",
+                        attempt, maxRetryAttempts, errBody);
+                    _keyPool.MarkRateLimited(usedKey, TimeSpan.FromSeconds(3600)); // cooldown 1 giờ — không retry liên tục
                     if (attempt == maxRetryAttempts) return response;
                     await Task.Delay(200, ct);
                     continue;
