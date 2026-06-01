@@ -11,8 +11,9 @@ tests/**/obj/
 *.suo
 *.sln.docstates
 
-# Secrets & local config
-src/appsettings.json
+# Secrets & local config — KHÔNG commit các file này
+# appsettings.json được commit nhưng KHÔNG chứa secrets thật
+# Secrets inject qua Environment Variables trên Render
 src/appsettings.Development.json
 src/appsettings.Secrets.json
 src/secrets.json

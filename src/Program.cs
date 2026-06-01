@@ -229,11 +229,12 @@ app.Use(async (context, next) =>
     await next();
 });
 
-// Chỉ redirect HTTPS khi không dùng ngrok (production)
-if (!app.Environment.IsDevelopment())
-{
-    app.UseHttpsRedirection();
-}
+// Render và các reverse proxy đã xử lý SSL ở load balancer
+// Không dùng UseHttpsRedirection để tránh redirect loop
+// if (!app.Environment.IsDevelopment())
+// {
+//     app.UseHttpsRedirection();
+// }
 
 app.UseAuthentication();
 app.UseAuthorization();
