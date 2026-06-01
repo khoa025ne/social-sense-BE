@@ -25,11 +25,17 @@ public class AuthController : ControllerBase
 {
     private readonly AppDbContext _db;
     private readonly JwtOptions _jwtOptions;
+    private readonly IEmailService _emailService;
+    private readonly SmtpOptions _smtpOptions;
+    private readonly ILogger<AuthController> _logger;
 
-    public AuthController(AppDbContext db, IOptions<JwtOptions> jwtOptions)
+    public AuthController(AppDbContext db, IOptions<JwtOptions> jwtOptions, IEmailService emailService, IOptions<SmtpOptions> smtpOptions, ILogger<AuthController> logger)
     {
         _db = db;
         _jwtOptions = jwtOptions.Value;
+        _emailService = emailService;
+        _smtpOptions = smtpOptions.Value;
+        _logger = logger;
     }
 
     [HttpPost("register")]
@@ -76,6 +82,16 @@ public class AuthController : ControllerBase
 
         _db.UserRoles.Add(new UserRole { UserId = user.Id, RoleId = userRole.Id });
         await _db.SaveChangesAsync(ct);
+
+        // Gửi email chào mừng — await trực tiếp để dễ debug, lỗi SMTP không fail request
+        try
+        {
+            await _emailService.SendWelcomeAsync(user.Email, user.DisplayName ?? user.Email.Split('@')[0], ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "⚠️ Failed to send welcome email to {Email}", user.Email);
+        }
 
         return Ok(new { message = "User registered successfully.", userId = user.Id });
     }
@@ -265,6 +281,88 @@ public class AuthController : ControllerBase
                 enterprise = "500 lượt/ngày hoặc Unlimited"
             }
         });
+    }
+
+    /// <summary>
+    /// POST /auth/forgot-password — Gửi OTP về email để đặt lại mật khẩu.
+    /// Luôn trả 200 để tránh email enumeration attack.
+    /// </summary>
+    [HttpPost("forgot-password")]
+    public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request, CancellationToken ct)
+    {
+        var email = request.Email.Trim().ToLowerInvariant();
+        var user = await _db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Email == email, ct);
+
+        // Luôn trả 200 dù email có tồn tại hay không (tránh email enumeration)
+        if (user == null || !user.IsActive)
+            return Ok(new { message = "Nếu email tồn tại, mã OTP đã được gửi." });
+
+        // Vô hiệu hoá tất cả OTP cũ chưa dùng của email này
+        var oldOtps = await _db.PasswordResetOtps
+            .Where(o => o.Email == email && !o.IsUsed && o.ExpiresAt > DateTime.UtcNow)
+            .ToListAsync(ct);
+        foreach (var old in oldOtps)
+            old.IsUsed = true;
+
+        // Tạo OTP 6 chữ số
+        var otpCode = RandomNumberGenerator.GetInt32(100000, 999999).ToString();
+        var otp = new PasswordResetOtp
+        {
+            Email = email,
+            OtpCode = otpCode,
+            ExpiresAt = DateTime.UtcNow.AddMinutes(_smtpOptions.OtpExpiryMinutes),
+            IsUsed = false,
+            CreatedAt = DateTime.UtcNow
+        };
+        _db.PasswordResetOtps.Add(otp);
+        await _db.SaveChangesAsync(ct);
+
+        // Gửi mail (không await để không block response nếu muốn, nhưng ở đây await để bắt lỗi)
+        await _emailService.SendPasswordResetOtpAsync(email, otpCode, _smtpOptions.OtpExpiryMinutes, ct);
+
+        return Ok(new { message = "Nếu email tồn tại, mã OTP đã được gửi." });
+    }
+
+    /// <summary>
+    /// POST /auth/reset-password — Xác nhận OTP và đặt lại mật khẩu mới.
+    /// </summary>
+    [HttpPost("reset-password")]
+    public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request, CancellationToken ct)
+    {
+        var email = request.Email.Trim().ToLowerInvariant();
+
+        var otp = await _db.PasswordResetOtps
+            .Where(o => o.Email == email && o.OtpCode == request.OtpCode && !o.IsUsed)
+            .OrderByDescending(o => o.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+
+        if (otp == null || otp.ExpiresAt <= DateTime.UtcNow)
+            return BadRequest(new { code = "OTP_INVALID_OR_EXPIRED", message = "Mã OTP không hợp lệ hoặc đã hết hạn." });
+
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Email == email && u.IsActive, ct);
+        if (user == null)
+            return BadRequest(new { code = "USER_NOT_FOUND", message = "Tài khoản không tồn tại." });
+
+        // Đổi mật khẩu
+        user.PasswordHash = PasswordHelper.HashPassword(request.NewPassword);
+        user.UpdatedAt = DateTime.UtcNow;
+
+        // Đánh dấu OTP đã dùng
+        otp.IsUsed = true;
+
+        // Thu hồi tất cả refresh token hiện tại (bắt đăng nhập lại)
+        var activeTokens = await _db.UserTokens
+            .Where(t => t.UserId == user.Id && !t.IsRevoked)
+            .ToListAsync(ct);
+        foreach (var token in activeTokens)
+        {
+            token.IsRevoked = true;
+            token.RevokedAt = DateTime.UtcNow;
+        }
+
+        await _db.SaveChangesAsync(ct);
+
+        return Ok(new { message = "Mật khẩu đã được đặt lại thành công. Vui lòng đăng nhập lại." });
     }
 
     private string GenerateAccessToken(User user)

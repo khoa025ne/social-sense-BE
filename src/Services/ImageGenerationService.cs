@@ -2,6 +2,8 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using SocialSense.Configuration;
 using SocialSense.Data;
 using SocialSense.DTOs.Content;
 
@@ -37,6 +39,7 @@ public class ImageGenerationService : IImageGenerationService
         AppDbContext db,
         HttpClient client,
         GeminiApiKeyPool keyPool,
+        IOptions<ImageGeneratorOptions> imageOpts,
         ILogger<ImageGenerationService> logger)
     {
         _db = db;
@@ -99,20 +102,12 @@ public class ImageGenerationService : IImageGenerationService
         var specs = GetBannerSpecs(request.Platform);
 
         // Build final prompt từ draft + answers
-        var finalPromptTask = BuildFinalPromptAsync(
+        var finalPrompt = await BuildFinalPromptAsync(
             contentText, request.DraftPrompt, request.DetectedIndustry,
             request.Platform, specs, request.Answers, ct);
 
-        var finalPrompt = await finalPromptTask;
-
-        // Thử generate ảnh nếu có image slot
-        string? imageUrl = null;
-        var imageSlot = _keyPool.GetImageSlot();
-
-        if (imageSlot.SupportsImageGen)
-        {
-            imageUrl = await TryGenerateImageAsync(finalPrompt, imageSlot, ct);
-        }
+        // Tạo ảnh miễn phí qua Pollinations.ai (không cần API key)
+        string? imageUrl = await TryGenerateImagePollinationsAsync(finalPrompt, specs, ct);
 
         return new ImageGenerateResponse
         {
@@ -181,53 +176,85 @@ Rules:
     {
         var hasProductPhoto = answers.TryGetValue("q1", out var q1) && q1.ToLower() is "yes" or "có";
         var colorTone = answers.TryGetValue("q2", out var q2) ? q2 : "Tối & sang trọng";
-        var caption = answers.TryGetValue("q3", out var q3) && !string.IsNullOrWhiteSpace(q3) ? q3 : null;
 
-        // Map color tone → English style
+        // q3 chỉ là caption nếu user thực sự nhập text — không phải option từ q2
+        var q3Raw = answers.TryGetValue("q3", out var q3val) ? q3val?.Trim() : null;
+        var captionBlacklist = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            { "yes", "no", "có", "không", "skip", "none", "Tối & sang trọng", "Sáng & năng động", "Tự nhiên & ấm áp" };
+        var caption = !string.IsNullOrWhiteSpace(q3Raw) && !captionBlacklist.Contains(q3Raw)
+            ? q3Raw : null;
+
+        // Map color tone → English style (ngắn gọn)
         var styleMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
-            ["Tối & sang trọng"]   = "dark luxury, deep charcoal background, gold accents, dramatic lighting",
-            ["Sáng & năng động"]   = "bright vibrant, white background, bold colors, energetic composition",
-            ["Tự nhiên & ấm áp"]   = "natural warm tones, soft lighting, earthy colors, organic feel",
+            ["Tối & sang trọng"] = "dark luxury, charcoal background, gold accents",
+            ["Sáng & năng động"] = "bright vibrant, white background, bold colors",
+            ["Tự nhiên & ấm áp"] = "warm natural tones, soft lighting, earthy colors",
         };
         var styleDesc = styleMap.TryGetValue(colorTone, out var s) ? s : "professional, clean design";
 
-        // Industry-specific tricks
-        var industryTricks = GetIndustryTricks(industry);
+        // Làm sạch draftPrompt — bỏ các từ sẽ bị lặp lại
+        var cleanDraft = CleanDraftPrompt(draftPrompt);
 
-        // Platform dimensions
-        var dimStr = $"{specs.Dimensions} banner";
+        // Build prompt ngắn gọn, không lặp
+        var parts = new List<string>();
+        parts.Add(cleanDraft);
+        parts.Add(styleDesc);
+        if (hasProductPhoto) parts.Add("product featured prominently");
+        if (caption != null) parts.Add($"text: '{caption}'");
+        parts.Add($"{specs.Dimensions}");
+        parts.Add("8K, photorealistic, commercial banner");
 
-        // Build prompt với formula
-        var promptParts = new List<string> { draftPrompt };
+        // Urgency
+        if (content.Contains("gấp") || content.Contains("nhanh") ||
+            content.Contains("limited") || content.Contains("khan hiếm"))
+            parts.Add("HOT DEAL badge");
 
-        promptParts.Add(styleDesc);
-        promptParts.Add(industryTricks);
-        promptParts.Add($"{dimStr}, {specs.AspectRatio} aspect ratio");
-        promptParts.Add("8K quality, commercial photography, ultra-detailed");
+        var rawPrompt = string.Join(", ", parts.Where(p => !string.IsNullOrWhiteSpace(p)));
 
-        if (hasProductPhoto)
-            promptParts.Add("with real product prominently featured, rule of thirds composition");
+        // Giới hạn 180 từ để URL không quá dài
+        rawPrompt = TruncateToWordLimit(rawPrompt, 180);
 
-        if (caption != null)
-            promptParts.Add($"text overlay: '{caption}' in bold white sans-serif font, high contrast");
-        else
-            promptParts.Add("minimal text, negative space for text overlay");
-
-        // Urgency visual nếu content có từ khóa bán hàng
-        if (content.Contains("gấp") || content.Contains("nhanh") || content.Contains("limited") || content.Contains("khan hiếm"))
-            promptParts.Add("urgency badge 'HOT DEAL' or 'LIMITED' in corner, attention-grabbing");
-
-        var finalPrompt = string.Join(", ", promptParts.Where(p => !string.IsNullOrWhiteSpace(p)));
-
-        // Nếu có AI slot, dùng AI để tinh chỉnh prompt thêm
+        // Nếu có AI slot, dùng AI để tinh chỉnh
         if (_keyPool.HasKeys)
         {
-            var refined = await RefinePromptWithAiAsync(finalPrompt, industry, platform, ct);
-            if (!string.IsNullOrWhiteSpace(refined)) return refined;
+            var refined = await RefinePromptWithAiAsync(rawPrompt, industry, platform, ct);
+            if (!string.IsNullOrWhiteSpace(refined))
+                return TruncateToWordLimit(refined, 180);
         }
 
-        return finalPrompt;
+        return rawPrompt;
+    }
+
+    /// <summary>Bỏ các cụm từ thừa trong draftPrompt để tránh lặp khi ghép với styleDesc và industryTricks.</summary>
+    private static string CleanDraftPrompt(string draft)
+    {
+        // Bỏ các suffix thường bị lặp
+        var redundant = new[]
+        {
+            "photorealistic", "8K", "ultra-detailed", "commercial photography",
+            "high contrast", "rule of thirds", "golden hour lighting",
+            "dramatic lighting", "soft lighting", "warm lighting",
+            "luxury real estate photography", "architectural visualization",
+            "premium property aesthetic", "river view or city skyline background"
+        };
+        var result = draft;
+        foreach (var r in redundant)
+            result = System.Text.RegularExpressions.Regex.Replace(
+                result, $@",?\s*{System.Text.RegularExpressions.Regex.Escape(r)}", "",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase).Trim();
+
+        // Dọn dấu phẩy thừa
+        result = System.Text.RegularExpressions.Regex.Replace(result, @",\s*,", ",").Trim(' ', ',');
+        return result;
+    }
+
+    /// <summary>Cắt prompt xuống còn tối đa maxWords từ.</summary>
+    private static string TruncateToWordLimit(string prompt, int maxWords)
+    {
+        var words = prompt.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (words.Length <= maxWords) return prompt;
+        return string.Join(" ", words.Take(maxWords));
     }
 
     private async Task<string?> RefinePromptWithAiAsync(
@@ -247,7 +274,10 @@ Enhancement rules:
 - Include depth of field specification
 - Add color grading style (cinematic, commercial, editorial)
 - Keep under 200 words
-- Output in English only";
+- Output in English only
+- CRITICAL: Do NOT include any Vietnamese text, color names in Vietnamese, or UI option labels in the prompt
+- CRITICAL: Do NOT add any text overlay instructions unless the raw prompt already contains a specific caption to display
+- CRITICAL: Remove any phrases like 'text overlay: ...' that contain Vietnamese words or option labels";
 
         try
         {
@@ -358,6 +388,57 @@ Enhancement rules:
         catch (Exception ex)
         {
             _logger.LogError(ex, "TryGenerateImageAsync error");
+            return null;
+        }
+    }
+
+    // ── Pollinations.ai — key lấy từ DB (provider = "pollinations") ──────────
+    // Admin thêm key qua POST /admin/api-keys với provider="pollinations"
+    // GET https://image.pollinations.ai/prompt/{prompt}?token=KEY → trả về ảnh trực tiếp
+    private async Task<string?> TryGenerateImagePollinationsAsync(
+        string prompt, BannerSpecs specs, CancellationToken ct)
+    {
+        try
+        {
+            // Parse width/height từ specs (vd: "1200x630"), max 1280px
+            var dims = specs.Dimensions.Split('x');
+            var width  = dims.Length > 0 && int.TryParse(dims[0], out var w) ? Math.Min(w, 1280) : 1200;
+            var height = dims.Length > 1 && int.TryParse(dims[1], out var h) ? Math.Min(h, 1280) : 630;
+
+            var encodedPrompt = Uri.EscapeDataString(prompt); // giữ để tương thích, không dùng cho URL
+            var seed = Random.Shared.Next(1, 99999);
+
+            // Lấy key từ pool (admin thêm qua /admin/api-keys)
+            var pollinationsKey = _keyPool.GetPollinationsKey();
+
+            // Build URL — thêm token nếu có key (rate limit cao hơn, nologo, enhance)
+            // Lưu ý: KHÔNG encode toàn bộ prompt bằng Uri.EscapeDataString vì sẽ encode cả dấu : trong aspect ratio
+            // Dùng replace thủ công cho các ký tự đặc biệt trong prompt
+            var safePrompt = prompt
+                .Replace("#", "%23")
+                .Replace("&", "%26")
+                .Replace("+", "%2B")
+                .Replace("?", "%3F");
+            // Encode spaces thành %20, giữ nguyên các ký tự khác
+            safePrompt = Uri.EscapeUriString(safePrompt);
+
+            var url = string.IsNullOrWhiteSpace(pollinationsKey)
+                ? $"https://image.pollinations.ai/prompt/{safePrompt}?width={width}&height={height}&seed={seed}&nologo=true&model=flux"
+                : $"https://image.pollinations.ai/prompt/{safePrompt}?width={width}&height={height}&seed={seed}&nologo=true&model=flux&enhance=true&token={pollinationsKey}";
+
+            _logger.LogInformation("Generating image via Pollinations.ai ({W}x{H}, authenticated={HasKey})",
+                width, height, !string.IsNullOrWhiteSpace(pollinationsKey));
+
+            // HEAD request để verify URL hợp lệ trước khi trả về FE
+            var headReq = new HttpRequestMessage(HttpMethod.Head, url);
+            using var headResp = await _client.SendAsync(headReq, ct);
+
+            _logger.LogInformation("Pollinations HEAD → {Status}", (int)headResp.StatusCode);
+            return url;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Pollinations.ai image generation failed");
             return null;
         }
     }

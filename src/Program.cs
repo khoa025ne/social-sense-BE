@@ -127,6 +127,8 @@ builder.Services.Configure<ImageGeneratorOptions>(builder.Configuration.GetSecti
 builder.Services.Configure<KnowledgeOptions>(builder.Configuration.GetSection("KnowledgeOptions"));
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
 builder.Services.Configure<PayOsOptions>(builder.Configuration.GetSection("PayOs"));
+builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection("Smtp"));
+builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 
 // PayOS HTTP client
 builder.Services.AddHttpClient<IPayOsService, PayOsService>()

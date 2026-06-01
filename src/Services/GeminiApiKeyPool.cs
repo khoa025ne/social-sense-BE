@@ -186,12 +186,14 @@ public class GeminiApiKeyPool
         if (!string.IsNullOrWhiteSpace(notes))
         {
             var n = notes.ToLowerInvariant();
+            if (n.Contains("pollinations")) return "pollinations";
             if (n.Contains("groq")) return "groq";
             if (n.Contains("openrouter")) return "openrouter";
             if (n.Contains("openai")) return "openai";
             if (n.Contains("gemini")) return "gemini";
         }
         // Detect từ prefix của key
+        if (keyValue.StartsWith("sk_")) return "pollinations";   // Pollinations key format: sk_xxx
         if (keyValue.StartsWith("sk-or-")) return "openrouter";
         if (keyValue.StartsWith("gsk_")) return "groq";
         if (keyValue.StartsWith("sk-")) return "openai";
@@ -274,6 +276,17 @@ public class GeminiApiKeyPool
         var now = DateTime.UtcNow;
         var imageSlot = _slots.FirstOrDefault(s => s.SupportsImageGen && s.CooldownUntil <= now);
         return imageSlot ?? GetNextSlot();
+    }
+
+    /// <summary>
+    /// Lấy key của Pollinations.ai từ DB (provider = "pollinations").
+    /// Trả về null nếu chưa có key nào trong DB.
+    /// </summary>
+    public string? GetPollinationsKey()
+    {
+        var slot = _slots.FirstOrDefault(s =>
+            string.Equals(s.Provider, "pollinations", StringComparison.OrdinalIgnoreCase));
+        return slot?.Key;
     }
 
     public class KeyStatus

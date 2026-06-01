@@ -6,6 +6,16 @@
 
 ---
 
+> ## 🆕 CẬP NHẬT MỚI NHẤT — v2.2 (01/06/2026)
+>
+> Xem chi tiết ở cuối tài liệu:
+> - **[Mục 13 — Image Generation Wizard](#13-image-generation-wizard-)** — Tạo ảnh banner AI 2 bước, tích hợp Pollinations.ai miễn phí
+> - **[Mục 14 — Đổi mật khẩu qua OTP Email](#14-đổi-mật-khẩu-qua-otp-email-)** — Forgot password + reset qua email
+> - **[Mục 15 — Welcome Email](#15-welcome-email-)** — Email chào mừng tự động sau đăng ký
+> - **[Quota áp dụng cho tạo ảnh](#quota-image)** — `POST /content/image/generate` giờ tốn 1 quota
+
+---
+
 ## Mục lục
 
 1. [Kiến trúc tổng quan](#1-kiến-trúc-tổng-quan)
@@ -20,6 +30,9 @@
 10. [Gợi ý tính năng mới (MVP+)](#10-gợi-ý-tính-năng-mới-mvp)
 11. [Payment — Thanh toán](#11-payment--thanh-toán)
 12. [Tier & Quota chi tiết](#12-tier--quota-chi-tiết)
+13. [🆕 Image Generation Wizard](#13-image-generation-wizard-)
+14. [🆕 Đổi mật khẩu qua OTP Email](#14-đổi-mật-khẩu-qua-otp-email-)
+15. [🆕 Welcome Email](#15-welcome-email-)
 
 ---
 
@@ -1378,7 +1391,8 @@ Ngoài ra: 50 Trends, 20 Tags, 10 KnowledgeItems, 50 ContentHistories, 10 UserCo
 
 ---
 
-## 13. Image Generation Wizard — Tạo ảnh banner 3 bước *(MỚI)*
+
+
 
 > Tất cả endpoints yêu cầu JWT 🔒. **Không tốn quota** ở bước Analyze.
 
@@ -1667,3 +1681,366 @@ POST /admin/api-keys
 - AI 401 retry: tự động xoay sang key tiếp theo khi nhận 401 Unauthorized
 - `AllowAutoRedirect = false` trên tất cả AI HttpClients để tránh Authorization header bị strip
 - `PersonaDriven` parse failure: log raw AI text + strengthen JSON-only prompt instruction
+
+
+---
+
+---
+
+# ═══════════════════════════════════════════════════════
+# 🆕 TÍNH NĂNG MỚI — v2.2 (01/06/2026)
+# ═══════════════════════════════════════════════════════
+
+> Các mục bên dưới là **hoàn toàn mới**, chưa có trong tài liệu cũ.
+> Đội FE cần implement thêm 3 flow này.
+
+---
+
+## 13. Image Generation Wizard 🆕
+
+> Tất cả endpoints yêu cầu JWT 🔒.
+> **Bước Analyze không tốn quota. Bước Generate tốn 1 quota** (giống tạo content).
+
+### Flow tổng quan
+
+```
+Bước 1 — ANALYZE                    Bước 2 — GENERATE
+POST /content/image/analyze    →    POST /content/image/generate
+(AI phân tích, trả câu hỏi)         (User trả lời → AI tạo ảnh)
+Không tốn quota                      Tốn 1 quota
+```
+
+---
+
+### 13.1 Bước 1 — Analyze
+
+**`POST /content/image/analyze`** 🔒 — **Không tốn quota**
+
+AI đọc content, phát hiện ngành nghề, trả về `draftPrompt` + tối đa 3 câu hỏi clarifying + thông số banner theo platform.
+
+```json
+// Request — dùng content history đã lưu
+{
+  "contentHistoryId": 23,
+  "platform": "Facebook"
+}
+
+// Request — hoặc truyền thẳng text
+{
+  "contentText": "Ra mắt căn hộ cao cấp The Grand tại TP.HCM. View sông Sài Gòn, tiện ích 5 sao. Giá từ 3.5 tỷ.",
+  "platform": "Facebook"
+}
+```
+
+```json
+// Response 200
+{
+  "imageSummary": "Banner BĐS cao cấp ven sông, tone tối sang trọng, ánh hoàng hôn vàng ấm.",
+  "draftPrompt": "Luxury apartment interior, Saigon river view, modern architecture, golden hour lighting",
+  "detectedIndustry": "real_estate",
+  "clarifyingQuestions": [
+    {
+      "id": "q1",
+      "question": "Bạn có muốn thêm ảnh thực tế của bất động sản vào banner không?",
+      "type": "yesno"
+    },
+    {
+      "id": "q2",
+      "question": "Tone màu bạn muốn:",
+      "type": "choice",
+      "options": ["Tối & sang trọng", "Sáng & năng động", "Tự nhiên & ấm áp"]
+    },
+    {
+      "id": "q3",
+      "question": "Có muốn thêm text/caption trên banner không? Nếu có, nhập nội dung:",
+      "type": "text_optional"
+    }
+  ],
+  "bannerSpecs": {
+    "platform": "Facebook",
+    "dimensions": "1200x630",
+    "aspectRatio": "1.91:1",
+    "recommendedStyle": "Bold text, high contrast, product-focused"
+  }
+}
+```
+
+**Loại câu hỏi (`type`) — FE render tương ứng:**
+
+| `type` | FE render |
+|--------|-----------|
+| `yesno` | 2 button: Có / Không |
+| `choice` | Radio group hoặc button group từ `options[]` |
+| `text_optional` | Input text, có thể bỏ trống |
+
+**`detectedIndustry` có thể là:** `real_estate` · `fashion` · `food` · `tech` · `finance` · `beauty` · `fitness` · `education` · `other`
+
+---
+
+### 13.2 Bước 2 — Generate
+
+**`POST /content/image/generate`** 🔒 — **Tốn 1 quota**
+
+Nhận `draftPrompt` + `detectedIndustry` từ bước 1, cộng với answers của user → AI build final prompt → tạo ảnh qua Pollinations.ai.
+
+```json
+// Request
+{
+  "contentHistoryId": 23,
+  "platform": "Facebook",
+  "draftPrompt": "Luxury apartment interior, Saigon river view, modern architecture, golden hour lighting",
+  "detectedIndustry": "real_estate",
+  "answers": {
+    "q1": "no",
+    "q2": "Tối & sang trọng",
+    "q3": ""
+  }
+}
+```
+
+> ⚠️ **Lưu ý quan trọng về `answers`:**
+> - `q1`: `"yes"` hoặc `"no"` (hoặc `"có"` / `"không"`)
+> - `q2`: truyền đúng giá trị từ `options[]` — ví dụ `"Tối & sang trọng"`
+> - `q3`: nếu user không nhập caption thì truyền `""` hoặc bỏ qua key — **không truyền giá trị của q2 vào đây**
+
+```json
+// Response 200 — ảnh được tạo thành công
+{
+  "imageUrl": "https://image.pollinations.ai/prompt/Luxury%20apartment%20interior,...?width=1200&height=630&seed=54321&nologo=true&model=flux&enhance=true&token=...",
+  "finalPrompt": "Luxury apartment interior, Saigon river view, dark luxury, charcoal background, gold accents, 1200x630, 8K, photorealistic, commercial banner",
+  "bannerSpecs": {
+    "platform": "Facebook",
+    "dimensions": "1200x630",
+    "aspectRatio": "1.91:1",
+    "recommendedStyle": "Bold text, high contrast, product-focused"
+  },
+  "isGenerated": true,
+  "promptUsageTip": null
+}
+
+// Response 200 — chưa có image key (chỉ trả prompt)
+{
+  "imageUrl": null,
+  "finalPrompt": "Luxury apartment interior...",
+  "bannerSpecs": { "..." },
+  "isGenerated": false,
+  "promptUsageTip": "Copy prompt trên và dùng với: Midjourney (/imagine), DALL-E 3 (ChatGPT Plus), hoặc Adobe Firefly để tạo ảnh miễn phí."
+}
+
+// Response 429 — hết quota
+{
+  "code": "QUOTA_EXCEEDED",
+  "tier": "Free",
+  "remainingQuota": 0,
+  "dailyLimit": 5,
+  "message": "Bạn đã dùng hết 5 lượt/ngày của gói Free..."
+}
+```
+
+**Cách FE hiển thị ảnh:**
+
+```html
+<!-- imageUrl là direct URL đến JPEG — dùng thẳng làm src -->
+<img src="{{ imageUrl }}" alt="AI Generated Banner" />
+```
+
+> ⚠️ Pollinations mất 5–15 giây để generate lần đầu. FE nên hiển thị loading skeleton trong lúc chờ ảnh load.
+
+---
+
+### 13.3 Platform specs tự động
+
+| Platform | Dimensions | Aspect Ratio |
+|----------|-----------|--------------|
+| Facebook | 1200×630 | 1.91:1 |
+| Instagram | 1080×1080 | 1:1 |
+| TikTok | 1080×1920 | 9:16 |
+| Zalo | 1200×628 | 1.91:1 |
+| LinkedIn | 1200×627 | 1.91:1 |
+| Twitter/X | 1600×900 | 16:9 |
+
+---
+
+### 13.4 Kích hoạt image generation (Admin)
+
+Admin thêm Pollinations key vào DB — pool tự reload, không cần restart:
+
+```json
+POST /admin/api-keys
+Authorization: Bearer <admin-token>
+
+{
+  "label": "Pollinations-Key1",
+  "keyValue": "sk_xxxxxxxxxxxxxxxx",
+  "provider": "pollinations",
+  "supportsImageGen": true,
+  "notes": "Pollinations.ai image generation"
+}
+```
+
+> Key prefix `sk_` được auto-detect là `provider = "pollinations"`. Nếu không truyền `provider`, hệ thống tự detect từ prefix.
+
+---
+
+<a name="quota-image"></a>
+### 13.5 Quota cho Image Generation
+
+| Endpoint | Tốn quota? |
+|----------|-----------|
+| `POST /content/image/analyze` | ❌ Không |
+| `POST /content/image/generate` | ✅ **1 quota** |
+
+Sau khi generate, FE nên gọi `GET /auth/quota` để cập nhật số lượt còn lại.
+
+---
+
+## 14. Đổi mật khẩu qua OTP Email 🆕
+
+### Flow
+
+```
+POST /auth/forgot-password   →   Nhận email → gửi OTP 6 số về mail (hết hạn 10 phút)
+        ↓
+POST /auth/reset-password    →   Xác nhận OTP + mật khẩu mới → đổi mật khẩu
+```
+
+---
+
+### 14.1 Gửi OTP
+
+**`POST /auth/forgot-password`** — Không cần auth
+
+> Luôn trả `200` dù email có tồn tại hay không — tránh email enumeration attack.
+
+```json
+// Request
+{
+  "email": "user@example.com"
+}
+
+// Response 200 — luôn trả về thông báo này
+{
+  "message": "Nếu email tồn tại, mã OTP đã được gửi."
+}
+```
+
+**Hành vi:**
+- OTP 6 chữ số, hết hạn sau **10 phút**
+- Nếu user request OTP mới, OTP cũ bị vô hiệu hoá ngay
+- Email gửi từ `khoaai2009@gmail.com` với subject: `Mã xác nhận đặt lại mật khẩu — SocialSense`
+
+---
+
+### 14.2 Đặt lại mật khẩu
+
+**`POST /auth/reset-password`** — Không cần auth
+
+```json
+// Request
+{
+  "email": "user@example.com",
+  "otpCode": "482931",
+  "newPassword": "NewPassword123!"
+}
+
+// Response 200
+{
+  "message": "Mật khẩu đã được đặt lại thành công. Vui lòng đăng nhập lại."
+}
+
+// Response 400 — OTP sai hoặc hết hạn
+{
+  "code": "OTP_INVALID_OR_EXPIRED",
+  "message": "Mã OTP không hợp lệ hoặc đã hết hạn."
+}
+
+// Response 400 — user không tồn tại
+{
+  "code": "USER_NOT_FOUND",
+  "message": "Tài khoản không tồn tại."
+}
+```
+
+**Sau khi đổi mật khẩu thành công:**
+- Tất cả refresh token hiện tại bị **revoke** → user bị đăng xuất khỏi tất cả thiết bị
+- FE nên redirect về trang login
+
+---
+
+### 14.3 Validation
+
+| Field | Rule |
+|-------|------|
+| `email` | Valid email format |
+| `otpCode` | Đúng 6 ký tự số |
+| `newPassword` | Tối thiểu 6 ký tự |
+
+---
+
+### 14.4 UX gợi ý cho FE
+
+```
+[Trang Login]
+  └─ "Quên mật khẩu?" → [Trang Forgot Password]
+        └─ Nhập email → POST /auth/forgot-password
+              └─ Hiển thị: "Kiểm tra email của bạn"
+                    └─ [Trang Reset Password]
+                          └─ Nhập OTP (6 ô) + mật khẩu mới
+                                └─ POST /auth/reset-password
+                                      └─ Thành công → redirect Login
+```
+
+**Lưu ý UX:**
+- Hiển thị countdown timer 10 phút cho OTP
+- Nút "Gửi lại OTP" sau 60 giây (gọi lại `forgot-password`)
+- Input OTP nên là 6 ô riêng biệt (auto-focus next)
+
+---
+
+## 15. Welcome Email 🆕
+
+### Mô tả
+
+Sau khi user đăng ký thành công qua `POST /auth/register`, hệ thống **tự động gửi email chào mừng** — FE không cần làm gì thêm.
+
+**Thông tin email:**
+- **From:** `SocialSense <khoaai2009@gmail.com>`
+- **Subject:** `Chào mừng bạn đến với SocialSense! 🥳`
+- **Nội dung:** Tên hiển thị, email đăng nhập, nút CTA "Khám phá ngay"
+- **Design:** Tone trắng-đen, logo SVG inline, phong cách tối giản
+
+**Lưu ý:** Nếu SMTP lỗi, đăng ký vẫn thành công — email fail không block response.
+
+---
+
+## Phụ lục — Error Codes mới (v2.2)
+
+| Code | HTTP | Mô tả |
+|------|------|-------|
+| `OTP_INVALID_OR_EXPIRED` | 400 | OTP sai hoặc đã hết hạn 10 phút |
+| `IMAGE_CONTENT_REQUIRED` | 400 | Cần truyền `contentHistoryId` hoặc `contentText` |
+| `IMAGE_DRAFT_PROMPT_REQUIRED` | 400 | Cần truyền `draftPrompt` từ bước Analyze |
+
+---
+
+## Phụ lục — Changelog
+
+### v2.2 — 01/06/2026 *(mới nhất)*
+
+**Thêm mới:**
+- `POST /content/image/analyze` — Bước 1 Image Wizard: AI phân tích content, trả về `imageSummary` + `clarifyingQuestions` + `draftPrompt` + `bannerSpecs`. Không tốn quota.
+- `POST /content/image/generate` — Bước 2 Image Wizard: build final prompt + tạo ảnh qua Pollinations.ai. **Tốn 1 quota.**
+- `POST /auth/forgot-password` — Gửi OTP 6 số về email, hết hạn 10 phút
+- `POST /auth/reset-password` — Xác nhận OTP + đặt lại mật khẩu, revoke tất cả refresh token
+- Welcome email tự động sau `POST /auth/register`
+
+**Cập nhật:**
+- `POST /admin/api-keys` — Hỗ trợ `provider = "pollinations"` cho image generation key. Auto-detect từ prefix `sk_`.
+- Quota system — `POST /content/image/generate` giờ tốn 1 quota, có reset hàng ngày và check Enterprise unlimited.
+
+### v2.1 — 30/05/2026
+
+- Image Wizard endpoints (analyze + generate) — phiên bản đầu, chưa có quota
+- `GET /admin/models` — danh sách models hỗ trợ
+- `ApiKeyEncryptionService` — mã hóa AES-256 cho tất cả key trong DB
+- `POST /admin/api-keys` — thêm fields `provider`, `modelOverride`, `supportsImageGen`

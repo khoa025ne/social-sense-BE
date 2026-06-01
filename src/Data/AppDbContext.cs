@@ -39,6 +39,8 @@ public class AppDbContext : DbContext
 
     public DbSet<PaymentOrder> PaymentOrders => Set<PaymentOrder>();
 
+    public DbSet<PasswordResetOtp> PasswordResetOtps => Set<PasswordResetOtp>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -159,6 +161,13 @@ public class AppDbContext : DbContext
             entity.HasIndex(x => x.UserId);
             entity.HasIndex(x => x.OrderCode).IsUnique();
             entity.HasIndex(x => x.Status);
+        });
+
+        modelBuilder.Entity<PasswordResetOtp>(entity =>
+        {
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
+            entity.HasIndex(x => x.Email);
+            entity.HasIndex(x => new { x.Email, x.OtpCode });
         });
     }
 }
