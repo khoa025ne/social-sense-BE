@@ -18,6 +18,9 @@ src/appsettings.Development.json
 src/appsettings.Secrets.json
 src/secrets.json
 
+# Render env file — chứa secrets thật, KHÔNG commit
+docs/render.env
+
 # OS
 .DS_Store
 Thumbs.db
