@@ -44,17 +44,53 @@ public class SmtpEmailService : IEmailService
         await SendAsync(toEmail, subject, html, text, ct);
     }
 
-    // ── Router: Resend (production) hoặc SMTP (local) ────────────────────────
+    // ── Router: Brevo (ưu tiên) → Resend → SMTP fallback ────────────────────
     private async Task SendAsync(string toEmail, string subject, string html, string text, CancellationToken ct)
     {
-        if (!string.IsNullOrWhiteSpace(_opts.ResendApiKey))
-        {
+        if (!string.IsNullOrWhiteSpace(_opts.BrevoApiKey))
+            await SendViaBrevoAsync(toEmail, subject, html, text, ct);
+        else if (!string.IsNullOrWhiteSpace(_opts.ResendApiKey))
             await SendViaResendAsync(toEmail, subject, html, text, ct);
-        }
         else
-        {
             await SendViaSmtpAsync(toEmail, subject, html, text, ct);
-        }
+    }
+
+    // ── Brevo HTTP API (https://api.brevo.com/v3/smtp/email) ─────────────────
+    private async Task SendViaBrevoAsync(string toEmail, string subject, string html, string text, CancellationToken ct)
+    {
+        var fromEmail = string.IsNullOrWhiteSpace(_opts.BrevoFromAddress)
+            ? _opts.Username
+            : _opts.BrevoFromAddress;
+
+        var payload = new
+        {
+            sender  = new { name = _opts.FromName, email = fromEmail },
+            to      = new[] { new { email = toEmail } },
+            subject,
+            htmlContent = html,
+            textContent = text
+        };
+
+        var client = _httpFactory.CreateClient("Brevo");
+        var req = new HttpRequestMessage(HttpMethod.Post, "https://api.brevo.com/v3/smtp/email")
+        {
+            Content = new StringContent(
+                System.Text.Json.JsonSerializer.Serialize(payload),
+                Encoding.UTF8, "application/json")
+        };
+        req.Headers.Add("api-key", _opts.BrevoApiKey);
+        req.Headers.Add("accept", "application/json");
+
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(15));
+
+        var resp = await client.SendAsync(req, cts.Token);
+        var body = await resp.Content.ReadAsStringAsync(cts.Token);
+
+        if (resp.IsSuccessStatusCode)
+            _logger.LogInformation("Email sent via Brevo to {Email}", toEmail);
+        else
+            throw new InvalidOperationException($"Brevo API error {(int)resp.StatusCode}: {body}");
     }
 
     // ── Resend HTTP API ───────────────────────────────────────────────────────
