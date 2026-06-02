@@ -747,4 +747,100 @@ public class AdminController : ControllerBase
         if (keyValue.StartsWith("AIza")) return "gemini";
         return "openrouter";
     }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SIMULATE PAYMENT (chỉ dùng để test — không cần thanh toán thật)
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// POST /admin/payment/simulate — Giả lập thanh toán thành công để test nâng tier.
+    /// Tạo PaymentOrder + Subscription + nâng tier user ngay lập tức.
+    /// CHỈ DÙNG ĐỂ TEST — không liên quan PayOS thật.
+    /// </summary>
+    [HttpPost("payment/simulate")]
+    public async Task<IActionResult> SimulatePayment(
+        [FromBody] SimulatePaymentRequest request, CancellationToken ct)
+    {
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == request.UserId, ct);
+        if (user == null) return NotFound(new { code = "USER_NOT_FOUND" });
+
+        if (!Enum.TryParse<SocialSense.Models.UserTier>(request.Tier, ignoreCase: true, out var tier)
+            || tier == SocialSense.Models.UserTier.Free)
+            return BadRequest(new { code = "INVALID_TIER", message = "Tier phải là Pro hoặc Enterprise." });
+
+        var now     = DateTime.UtcNow;
+        var amount  = tier == SocialSense.Models.UserTier.Pro ? 50000 : 79000;
+        var orderCode = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        // Tạo PaymentOrder đã paid
+        var order = new SocialSense.Models.PaymentOrder
+        {
+            UserId      = request.UserId,
+            OrderCode   = orderCode,
+            TargetTier  = tier,
+            Amount      = amount,
+            Description = $"SIMULATE-{tier}",
+            Status      = SocialSense.Models.PaymentOrderStatus.Paid,
+            CheckoutUrl = "simulated",
+            PaidAt      = now,
+            CreatedAt   = now,
+            UpdatedAt   = now
+        };
+        _db.PaymentOrders.Add(order);
+
+        // Tạo hoặc cập nhật Subscription
+        var existing = await _db.Subscriptions.FirstOrDefaultAsync(s => s.UserId == request.UserId, ct);
+        if (existing != null)
+        {
+            existing.Tier             = tier;
+            existing.Status           = SocialSense.Models.SubscriptionStatus.Active;
+            existing.StartedAt        = now;
+            existing.ExpiresAt        = now.AddDays(30);
+            existing.AmountPaid       = amount;
+            existing.PaymentOrderCode = orderCode;
+            existing.UpdatedAt        = now;
+        }
+        else
+        {
+            _db.Subscriptions.Add(new SocialSense.Models.Subscription
+            {
+                UserId           = request.UserId,
+                Tier             = tier,
+                Status           = SocialSense.Models.SubscriptionStatus.Active,
+                StartedAt        = now,
+                ExpiresAt        = now.AddDays(30),
+                AmountPaid       = amount,
+                PaymentOrderCode = orderCode,
+                CreatedAt        = now,
+                UpdatedAt        = now
+            });
+        }
+
+        // Nâng tier user
+        user.Tier            = tier;
+        user.DailyQuotaLimit = SocialSense.Models.User.GetDefaultQuota(tier);
+        user.RemainingQuota  = user.DailyQuotaLimit;
+        user.LastQuotaReset  = now;
+        user.UpdatedAt       = now;
+
+        await _db.SaveChangesAsync(ct);
+
+        _logger.LogInformation("Admin simulated payment: userId={UserId}, tier={Tier}", request.UserId, tier);
+
+        return Ok(new
+        {
+            message      = $"✅ Đã giả lập thanh toán thành công. User {request.UserId} nâng lên {tier}.",
+            userId       = request.UserId,
+            tier         = tier.ToString(),
+            orderCode,
+            dailyQuota   = user.DailyQuotaLimit,
+            expiresAt    = now.AddDays(30)
+        });
+    }
+}
+
+public class SimulatePaymentRequest
+{
+    public int UserId { get; set; }
+    public string Tier { get; set; } = "Pro";
 }
