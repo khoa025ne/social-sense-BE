@@ -20,8 +20,9 @@ WORKDIR /app
 # Copy published output
 COPY --from=build /app/publish .
 
-# Render inject PORT qua env var, ASP.NET Core đọc ASPNETCORE_URLS
+# Port mặc định 8080
+# Railway: set ASPNETCORE_URLS=http://+:$PORT trong env vars
+# Render:  set ASPNETCORE_URLS=http://+:8080 trong env vars
 EXPOSE 8080
-ENV ASPNETCORE_URLS=http://+:8080
 
 ENTRYPOINT ["dotnet", "SocialSense.dll"]

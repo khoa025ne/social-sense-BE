@@ -128,8 +128,6 @@ builder.Services.Configure<KnowledgeOptions>(builder.Configuration.GetSection("K
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection("Jwt"));
 builder.Services.Configure<PayOsOptions>(builder.Configuration.GetSection("PayOs"));
 builder.Services.Configure<SmtpOptions>(builder.Configuration.GetSection("Smtp"));
-builder.Services.AddHttpClient("Resend").ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(15));
-builder.Services.AddHttpClient("Brevo").ConfigureHttpClient(c => c.Timeout = TimeSpan.FromSeconds(15));
 builder.Services.AddScoped<IEmailService, SmtpEmailService>();
 
 // PayOS HTTP client
