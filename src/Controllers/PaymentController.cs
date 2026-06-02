@@ -284,9 +284,9 @@ public class PaymentController : ControllerBase
         [FromBody] System.Text.Json.JsonElement rawBody,
         CancellationToken ct)
     {
-        // Log raw body để debug
+        // Log raw body để debug signature
         var rawJson = rawBody.GetRawText();
-        _logger.LogInformation("payOS webhook received: {Body}", rawJson);
+        _logger.LogInformation("payOS webhook received (raw): {Body}", rawJson);
 
         PayOsWebhookPayload? payload;
         try

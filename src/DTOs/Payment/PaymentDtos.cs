@@ -116,6 +116,25 @@ public class PayOsWebhookData
 
     [JsonPropertyName("desc")]
     public string Desc { get; set; } = string.Empty;
+
+    // Fields có thể null từ PayOS
+    [JsonPropertyName("counterAccountBankId")]
+    public string? CounterAccountBankId { get; set; }
+
+    [JsonPropertyName("counterAccountBankName")]
+    public string? CounterAccountBankName { get; set; }
+
+    [JsonPropertyName("counterAccountName")]
+    public string? CounterAccountName { get; set; }
+
+    [JsonPropertyName("counterAccountNumber")]
+    public string? CounterAccountNumber { get; set; }
+
+    [JsonPropertyName("virtualAccountName")]
+    public string? VirtualAccountName { get; set; }
+
+    [JsonPropertyName("virtualAccountNumber")]
+    public string? VirtualAccountNumber { get; set; }
 }
 
 // ── payOS API request/response ────────────────────────────────────────────────

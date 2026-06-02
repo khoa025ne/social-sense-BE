@@ -118,15 +118,24 @@ public class PayOsService : IPayOsService
 
     private static string BuildWebhookDataString(PayOsWebhookData data)
     {
-        // payOS sort theo alphabet: accountNumber, amount, description, orderCode, reference, transactionDateTime
+        // PayOS sort TẤT CẢ fields trong data object theo alphabet
+        // Kể cả các field null (dùng empty string)
         var fields = new SortedDictionary<string, string>
         {
-            ["accountNumber"]       = data.AccountNumber ?? "",
-            ["amount"]              = data.Amount.ToString(),
-            ["description"]         = data.Description ?? "",
-            ["orderCode"]           = data.OrderCode.ToString(),
-            ["reference"]           = data.Reference ?? "",
-            ["transactionDateTime"] = data.TransactionDateTime ?? "",
+            ["accountNumber"]         = data.AccountNumber ?? "",
+            ["amount"]                = data.Amount.ToString(),
+            ["counterAccountBankId"]  = data.CounterAccountBankId ?? "",
+            ["counterAccountBankName"]= data.CounterAccountBankName ?? "",
+            ["counterAccountName"]    = data.CounterAccountName ?? "",
+            ["counterAccountNumber"]  = data.CounterAccountNumber ?? "",
+            ["currency"]              = data.Currency ?? "",
+            ["description"]           = data.Description ?? "",
+            ["orderCode"]             = data.OrderCode.ToString(),
+            ["paymentLinkId"]         = data.PaymentLinkId ?? "",
+            ["reference"]             = data.Reference ?? "",
+            ["transactionDateTime"]   = data.TransactionDateTime ?? "",
+            ["virtualAccountName"]    = data.VirtualAccountName ?? "",
+            ["virtualAccountNumber"]  = data.VirtualAccountNumber ?? "",
         };
 
         return string.Join("&", fields.Select(kv => $"{kv.Key}={kv.Value}"));
