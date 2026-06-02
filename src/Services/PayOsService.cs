@@ -73,7 +73,6 @@ public class PayOsService : IPayOsService
 
         try
         {
-            // payOS sort các field của data theo alphabet rồi nối thành key=value&key=value
             var data = payload.Data;
             var dataString = BuildWebhookDataString(data);
 
@@ -84,8 +83,12 @@ public class PayOsService : IPayOsService
             var isValid = computed == payload.Signature?.ToLowerInvariant();
             if (!isValid)
             {
-                _logger.LogWarning("payOS webhook signature mismatch. Expected: {Expected}, Got: {Got}",
-                    computed, payload.Signature);
+                _logger.LogWarning(
+                    "payOS webhook signature mismatch.\n" +
+                    "DataString used: {DataString}\n" +
+                    "Expected (our calc): {Expected}\n" +
+                    "Got (from payOS):    {Got}",
+                    dataString, computed, payload.Signature);
             }
             return isValid;
         }
