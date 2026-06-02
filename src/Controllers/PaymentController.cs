@@ -292,11 +292,15 @@ public class PaymentController : ControllerBase
         try
         {
             payload = System.Text.Json.JsonSerializer.Deserialize<PayOsWebhookPayload>(rawJson,
-                new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                new System.Text.Json.JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                    NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString
+                });
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "payOS webhook: failed to deserialize body");
+            _logger.LogWarning(ex, "payOS webhook: failed to deserialize body: {Body}", rawJson);
             return Ok(new { code = "00", message = "acknowledged" });
         }
 
