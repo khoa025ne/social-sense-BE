@@ -373,12 +373,9 @@ public class PaymentController : ControllerBase
         // Verify signature cho request thật
         if (!_payOs.VerifyWebhookSignature(payload))
         {
-            // Log full raw JSON để debug signature
             _logger.LogWarning("payOS webhook: invalid signature. OrderCode={OrderCode}. RawBody={RawBody}",
                 payload.Data?.OrderCode, rawJson);
-            // TẠM THỜI: vẫn xử lý dù signature fail để không bỏ lỡ payment
-            // TODO: bật lại strict verify sau khi fix đúng ChecksumKey
-            // return BadRequest(new { code = "INVALID_SIGNATURE" });
+            return BadRequest(new { code = "INVALID_SIGNATURE" });
         }
 
         // Chỉ xử lý khi success = true và code = "00"

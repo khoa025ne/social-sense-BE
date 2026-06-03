@@ -119,16 +119,19 @@ public class PayOsService : IPayOsService
     private static string BuildWebhookDataString(PayOsWebhookData data)
     {
         // PayOS sort TẤT CẢ fields trong data object theo alphabet
-        // Kể cả các field null (dùng empty string)
+        // BAO GỒM cả code và desc (từ data object, không phải root)
+        // Null values -> empty string ""
         var fields = new SortedDictionary<string, string>
         {
             ["accountNumber"]         = data.AccountNumber ?? "",
             ["amount"]                = data.Amount.ToString(),
+            ["code"]                  = data.Code ?? "",
             ["counterAccountBankId"]  = data.CounterAccountBankId ?? "",
             ["counterAccountBankName"]= data.CounterAccountBankName ?? "",
             ["counterAccountName"]    = data.CounterAccountName ?? "",
             ["counterAccountNumber"]  = data.CounterAccountNumber ?? "",
             ["currency"]              = data.Currency ?? "",
+            ["desc"]                  = data.Desc ?? "",
             ["description"]           = data.Description ?? "",
             ["orderCode"]             = data.OrderCode.ToString(),
             ["paymentLinkId"]         = data.PaymentLinkId ?? "",
