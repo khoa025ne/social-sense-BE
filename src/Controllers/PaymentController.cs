@@ -239,6 +239,65 @@ public class PaymentController : ControllerBase
     // ── Webhook từ payOS ──────────────────────────────────────────────────────
 
     /// <summary>
+    /// POST /payment/webhook/debug — Nhận webhook và log đầy đủ để debug signature.
+    /// Chỉ dùng trong development.
+    /// </summary>
+    [HttpPost("webhook/debug")]
+    [IgnoreAntiforgeryToken]
+    public IActionResult WebhookDebug([FromBody] System.Text.Json.JsonElement rawBody)
+    {
+        var rawJson = rawBody.GetRawText();
+        _logger.LogInformation("=== WEBHOOK DEBUG ===");
+        _logger.LogInformation("Raw body: {Body}", rawJson);
+
+        try
+        {
+            var payload = System.Text.Json.JsonSerializer.Deserialize<SocialSense.DTOs.Payment.PayOsWebhookPayload>(
+                rawJson,
+                new System.Text.Json.JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true,
+                    NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString
+                });
+
+            if (payload?.Data != null)
+            {
+                var d = payload.Data;
+                var ds = $"accountNumber={d.AccountNumber}&amount={d.Amount}" +
+                         $"&counterAccountBankId={d.CounterAccountBankId ?? ""}" +
+                         $"&counterAccountBankName={d.CounterAccountBankName ?? ""}" +
+                         $"&counterAccountName={d.CounterAccountName ?? ""}" +
+                         $"&counterAccountNumber={d.CounterAccountNumber ?? ""}" +
+                         $"&currency={d.Currency}" +
+                         $"&description={d.Description}" +
+                         $"&orderCode={d.OrderCode}" +
+                         $"&paymentLinkId={d.PaymentLinkId}" +
+                         $"&reference={d.Reference}" +
+                         $"&transactionDateTime={d.TransactionDateTime}" +
+                         $"&virtualAccountName={d.VirtualAccountName ?? ""}" +
+                         $"&virtualAccountNumber={d.VirtualAccountNumber ?? ""}";
+
+                _logger.LogInformation("DataString: {DS}", ds);
+                _logger.LogInformation("Signature from PayOS: {Sig}", payload.Signature);
+
+                var key = _options.ChecksumKey;
+                using var hmac = new System.Security.Cryptography.HMACSHA256(
+                    System.Text.Encoding.UTF8.GetBytes(key));
+                var hash = hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes(ds));
+                var computed = Convert.ToHexString(hash).ToLowerInvariant();
+                _logger.LogInformation("Our computed: {Computed}", computed);
+                _logger.LogInformation("Match: {Match}", computed == payload.Signature?.ToLowerInvariant());
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Debug webhook parse error");
+        }
+
+        return Ok(new { code = "00", message = "debug acknowledged" });
+    }
+
+    /// <summary>
     /// GET /payment/webhook — payOS dùng để kiểm tra endpoint còn sống không.
     /// Phải trả về 200.
     /// </summary>
@@ -247,10 +306,6 @@ public class PaymentController : ControllerBase
     {
         return Ok(new { code = "00", message = "webhook endpoint is alive" });
     }
-
-    /// <summary>
-    /// GET /payment/success — payOS redirect user về đây sau khi thanh toán xong.
-    /// </summary>
     [HttpGet("success")]
     public IActionResult PaymentSuccess([FromQuery] long? orderCode)
     {
