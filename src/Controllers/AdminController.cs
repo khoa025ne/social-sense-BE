@@ -562,12 +562,12 @@ public class AdminController : ControllerBase
 
     /// <summary>POST /admin/api-keys/reload — Reload pool từ DB (không cần restart)</summary>
     [HttpPost("api-keys/reload")]
-    public async Task<IActionResult> ReloadKeyPool()
+    public async Task<IActionResult> ReloadKeyPool([FromQuery] bool clearCooldowns = false)
     {
         await _keyPool.ReloadFromDatabaseAsync();
         return Ok(new
         {
-            message = "Pool đã được reload.",
+            message = clearCooldowns ? "Pool đã được reload và xóa toàn bộ cooldown." : "Pool đã được reload.",
             activeKeys = _keyPool.KeyCount,
             statuses = _keyPool.GetKeyStatuses()
         });
@@ -616,6 +616,15 @@ public class AdminController : ControllerBase
             new { provider = "groq", modelId = "llama-3.3-70b-versatile",                           displayName = "Llama 3.3 70B Versatile (Groq)",  supportsImageGen = false, isFree = true,  notes = "High quality on Groq" },
             new { provider = "groq", modelId = "llama-3.1-8b-instant",                              displayName = "Llama 3.1 8B Instant (Groq)",     supportsImageGen = false, isFree = true,  notes = "Fastest Groq model" },
             new { provider = "groq", modelId = "qwen/qwen3-32b",                                    displayName = "Qwen3 32B (Groq)",                supportsImageGen = false, isFree = true,  notes = "Strong multilingual" },
+
+            // ── HuggingFace — Image models ────────────────────────────────────
+            new { provider = "huggingface", modelId = "black-forest-labs/FLUX.1-schnell",           displayName = "FLUX.1 Schnell (HF)",             supportsImageGen = true,  isFree = true,  notes = "Miễn phí với HF token, rất nhanh" },
+            new { provider = "huggingface", modelId = "black-forest-labs/FLUX.1-dev",               displayName = "FLUX.1 Dev (HF)",                 supportsImageGen = true,  isFree = false, notes = "Chất lượng cao, cần HF Pro" },
+            new { provider = "huggingface", modelId = "stabilityai/stable-diffusion-xl-base-1.0",   displayName = "SDXL Base (HF)",                  supportsImageGen = true,  isFree = true,  notes = "Stable Diffusion XL miễn phí" },
+            new { provider = "huggingface", modelId = "stabilityai/sdxl-turbo",                     displayName = "SDXL Turbo (HF)",                 supportsImageGen = true,  isFree = true,  notes = "Cực nhanh, 1-step generation" },
+
+            // ── Pollinations — Image ──────────────────────────────────────────
+            new { provider = "pollinations", modelId = "flux",                                      displayName = "Flux (Pollinations)",              supportsImageGen = true,  isFree = true,  notes = "Miễn phí, không cần key" },
         };
 
         return Ok(new
@@ -837,6 +846,7 @@ public class AdminController : ControllerBase
             expiresAt    = now.AddDays(30)
         });
     }
+
 }
 
 public class SimulatePaymentRequest
