@@ -101,13 +101,38 @@ public class ImageGenerationService : IImageGenerationService
         var contentText = await ResolveContentTextAsync(request.ContentHistoryId, request.ContentText, userId, ct);
         var specs = GetBannerSpecs(request.Platform);
 
-        // Build final prompt từ draft + answers
         var finalPrompt = await BuildFinalPromptAsync(
             contentText, request.DraftPrompt, request.DetectedIndustry,
             request.Platform, specs, request.Answers, ct);
 
-        // Tạo ảnh miễn phí qua Pollinations.ai (không cần API key)
-        string? imageUrl = await TryGenerateImagePollinationsAsync(finalPrompt, specs, ct);
+        // ── Multi-provider image generation chain ─────────────────────────────
+        // 1. Pollinations (authenticated keys từ DB)
+        // 2. OpenRouter / HuggingFace keys có SupportsImageGen = true
+        // 3. Pollinations anonymous (không cần key, luôn hoạt động)
+        string? imageUrl = null;
+
+        // 1. Pollinations với key từ DB
+        imageUrl = await TryGenerateImagePollinationsAsync(finalPrompt, specs, useKeysOnly: true, ct);
+
+        // 2. OpenRouter / HuggingFace image keys
+        if (imageUrl == null)
+        {
+            var imageSlots = _keyPool.GetImageSlots();
+            foreach (var slot in imageSlots)
+            {
+                _logger.LogInformation("Trying image generation via {Provider} (model={Model})",
+                    slot.Provider, slot.ModelOverride ?? "default");
+                imageUrl = await TryGenerateImageViaSlotAsync(finalPrompt, specs, slot, ct);
+                if (imageUrl != null) break;
+            }
+        }
+
+        // 3. Pollinations anonymous fallback (không cần key)
+        if (imageUrl == null)
+        {
+            _logger.LogInformation("Fallback to Pollinations anonymous");
+            imageUrl = await TryGenerateImagePollinationsAsync(finalPrompt, specs, useKeysOnly: false, ct);
+        }
 
         return new ImageGenerateResponse
         {
@@ -300,6 +325,173 @@ Enhancement rules:
         return null;
     }
 
+    // ── Multi-provider image generation via KeySlot ───────────────────────────
+    // Hỗ trợ: OpenRouter (modalities:image), HuggingFace (inference API), OpenAI DALL-E
+    private async Task<string?> TryGenerateImageViaSlotAsync(
+        string prompt, BannerSpecs specs, GeminiApiKeyPool.KeySlot slot, CancellationToken ct)
+    {
+        try
+        {
+            return slot.Provider?.ToLower() switch
+            {
+                "huggingface" => await TryHuggingFaceAsync(prompt, specs, slot, ct),
+                "openai"      => await TryOpenAiDalleAsync(prompt, specs, slot, ct),
+                _             => await TryOpenRouterImageAsync(prompt, slot, ct)  // openrouter default
+            };
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Image generation via {Provider} failed", slot.Provider);
+            return null;
+        }
+    }
+
+    // ── OpenRouter — chat/completions với modalities: ["image"] ──────────────
+    private async Task<string?> TryOpenRouterImageAsync(
+        string prompt, GeminiApiKeyPool.KeySlot slot, CancellationToken ct)
+    {
+        var model = slot.ModelOverride ?? "black-forest-labs/flux-schnell";
+        _logger.LogInformation("OpenRouter image: model={Model}", model);
+
+        var body = new
+        {
+            model,
+            messages = new[] { new { role = "user", content = prompt } },
+            modalities = new[] { "image" }
+        };
+
+        var msg = new HttpRequestMessage(HttpMethod.Post, "https://openrouter.ai/api/v1/chat/completions")
+        {
+            Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
+        };
+        msg.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", slot.Key);
+        msg.Headers.TryAddWithoutValidation("HTTP-Referer", "https://socialsense.app");
+        msg.Headers.TryAddWithoutValidation("X-Title", "SocialSense");
+
+        using var response = await _client.SendAsync(msg, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var err = await response.Content.ReadAsStringAsync(ct);
+            _logger.LogWarning("OpenRouter image failed: {Status} — {Body}", response.StatusCode, err);
+            if ((int)response.StatusCode is 402 or 429)
+                _keyPool.MarkRateLimited(slot.Key, TimeSpan.FromHours(1));
+            return null;
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+
+        if (doc.RootElement.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
+        {
+            var message = choices[0].GetProperty("message");
+            if (message.TryGetProperty("content", out var content))
+            {
+                if (content.ValueKind == JsonValueKind.String)
+                {
+                    var text = content.GetString() ?? "";
+                    if (text.StartsWith("data:image")) return text;
+                }
+                else if (content.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var item in content.EnumerateArray())
+                    {
+                        if (item.TryGetProperty("type", out var type) && type.GetString() == "image_url" &&
+                            item.TryGetProperty("image_url", out var imgObj) &&
+                            imgObj.TryGetProperty("url", out var url))
+                            return url.GetString();
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    // ── HuggingFace Inference API — text-to-image ────────────────────────────
+    // Model mặc định: stabilityai/stable-diffusion-xl-base-1.0 (miễn phí với HF token)
+    // Hoặc: black-forest-labs/FLUX.1-schnell (nhanh, chất lượng cao)
+    private async Task<string?> TryHuggingFaceAsync(
+        string prompt, BannerSpecs specs, GeminiApiKeyPool.KeySlot slot, CancellationToken ct)
+    {
+        var model = slot.ModelOverride ?? "black-forest-labs/FLUX.1-schnell";
+        _logger.LogInformation("HuggingFace image: model={Model}", model);
+
+        var dims = specs.Dimensions.Split('x');
+        var width  = dims.Length > 0 && int.TryParse(dims[0], out var w) ? Math.Min(w, 1024) : 1024;
+        var height = dims.Length > 1 && int.TryParse(dims[1], out var h) ? Math.Min(h, 1024) : 576;
+
+        var body = new
+        {
+            inputs = prompt,
+            parameters = new { width, height, num_inference_steps = 4 }
+        };
+
+        var msg = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"https://api-inference.huggingface.co/models/{model}")
+        {
+            Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
+        };
+        msg.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", slot.Key);
+
+        using var response = await _client.SendAsync(msg, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var err = await response.Content.ReadAsStringAsync(ct);
+            _logger.LogWarning("HuggingFace image failed: {Status} — {Body}", response.StatusCode, err);
+            if ((int)response.StatusCode is 429)
+                _keyPool.MarkRateLimited(slot.Key, TimeSpan.FromMinutes(60));
+            return null;
+        }
+
+        // HuggingFace trả về binary image
+        var imageBytes = await response.Content.ReadAsByteArrayAsync(ct);
+        if (imageBytes.Length < 1000) return null;
+
+        var contentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
+        var base64 = Convert.ToBase64String(imageBytes);
+        _logger.LogInformation("HuggingFace image OK: {Bytes} bytes", imageBytes.Length);
+        return $"data:{contentType};base64,{base64}";
+    }
+
+    // ── OpenAI DALL-E 3 ───────────────────────────────────────────────────────
+    private async Task<string?> TryOpenAiDalleAsync(
+        string prompt, BannerSpecs specs, GeminiApiKeyPool.KeySlot slot, CancellationToken ct)
+    {
+        _logger.LogInformation("OpenAI DALL-E 3 image generation");
+
+        var body = new
+        {
+            model = slot.ModelOverride ?? "dall-e-3",
+            prompt = TruncateToWordLimit(prompt, 100), // DALL-E max ~400 chars
+            n = 1,
+            size = "1024x1024",
+            response_format = "b64_json"
+        };
+
+        var msg = new HttpRequestMessage(HttpMethod.Post, "https://api.openai.com/v1/images/generations")
+        {
+            Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
+        };
+        msg.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", slot.Key);
+
+        using var response = await _client.SendAsync(msg, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var err = await response.Content.ReadAsStringAsync(ct);
+            _logger.LogWarning("DALL-E failed: {Status} — {Body}", response.StatusCode, err);
+            return null;
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        if (doc.RootElement.TryGetProperty("data", out var data) && data.GetArrayLength() > 0 &&
+            data[0].TryGetProperty("b64_json", out var b64))
+        {
+            return $"data:image/png;base64,{b64.GetString()}";
+        }
+        return null;
+    }
+
     private async Task<string?> TryGenerateImageAsync(
         string prompt, GeminiApiKeyPool.KeySlot slot, CancellationToken ct)
     {
@@ -393,10 +585,8 @@ Enhancement rules:
     }
 
     // ── Pollinations.ai — download ảnh tại BE, trả base64 về FE ──────────────
-    // Lý do: Android fetch/OkHttp không handle được URL dài + long-polling của Pollinations
-    // BE download ảnh → convert base64 → FE dùng data URI trực tiếp, không cần fetch thêm
     private async Task<string?> TryGenerateImagePollinationsAsync(
-        string prompt, BannerSpecs specs, CancellationToken ct)
+        string prompt, BannerSpecs specs, bool useKeysOnly, CancellationToken ct)
     {
         try
         {
@@ -409,12 +599,18 @@ Enhancement rules:
             var encodedPrompt = Uri.EscapeDataString(safePrompt);
 
             var pollinationsKeys = _keyPool.GetPollinationsKeys();
-            _logger.LogInformation("Generating image via Pollinations.ai ({W}x{H}, keys={Count})",
-                width, height, pollinationsKeys.Count);
+            _logger.LogInformation("Generating image via Pollinations.ai ({W}x{H}, keys={Count}, keysOnly={KeysOnly})",
+                width, height, pollinationsKeys.Count, useKeysOnly);
 
             var keysToTry = pollinationsKeys.Count > 0
                 ? pollinationsKeys
-                : (IReadOnlyList<string>)new List<string> { string.Empty };
+                : (useKeysOnly ? (IReadOnlyList<string>)new List<string>() : new List<string> { string.Empty });
+
+            if (keysToTry.Count == 0)
+            {
+                _logger.LogInformation("Pollinations: no keys to try (useKeysOnly={K})", useKeysOnly);
+                return null;
+            }
 
             foreach (var key in keysToTry)
             {

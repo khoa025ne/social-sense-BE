@@ -280,6 +280,20 @@ public class GeminiApiKeyPool
     }
 
     /// <summary>
+    /// Lấy tất cả slots có SupportsImageGen = true, không phải Pollinations.
+    /// Dùng cho multi-provider fallback: OpenRouter, HuggingFace, OpenAI...
+    /// </summary>
+    public IReadOnlyList<KeySlot> GetImageSlots()
+    {
+        var now = DateTime.UtcNow;
+        return _slots
+            .Where(s => s.SupportsImageGen
+                && !string.Equals(s.Provider, "pollinations", StringComparison.OrdinalIgnoreCase)
+                && s.CooldownUntil <= now)
+            .ToList();
+    }
+
+    /// <summary>
     /// Lấy tất cả key Pollinations.ai active từ DB để rotate khi key hết balance.
     /// </summary>
     public IReadOnlyList<string> GetPollinationsKeys()
