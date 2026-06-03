@@ -416,13 +416,16 @@ public class AdminController : ControllerBase
             ? request.Provider.Trim().ToLowerInvariant()
             : DetectProviderFromNotes(request.Notes, rawKey);
 
-        // Kiểm tra trùng key (so sánh trước khi encrypt)
+        // Kiểm tra trùng: cùng key VÀ cùng modelOverride thì mới báo lỗi
+        // Cho phép cùng key nhưng khác modelOverride (vd: 1 key dùng cho text, 1 dùng cho image)
         var allKeys = await _db.ApiKeyConfigs.AsNoTracking().ToListAsync(ct);
         foreach (var existing in allKeys)
         {
             var existingRaw = existing.IsEncrypted ? _encryption.Decrypt(existing.KeyValue) : existing.KeyValue;
-            if (existingRaw == rawKey)
-                return BadRequest(new { code = "KEY_ALREADY_EXISTS", message = "Key này đã tồn tại trong hệ thống." });
+            var existingModel = existing.ModelOverride ?? "";
+            var newModel = string.IsNullOrWhiteSpace(request.ModelOverride) ? "" : request.ModelOverride.Trim();
+            if (existingRaw == rawKey && existingModel == newModel)
+                return BadRequest(new { code = "KEY_ALREADY_EXISTS", message = "Key này với model này đã tồn tại trong hệ thống." });
         }
 
         // Encrypt key
@@ -457,10 +460,10 @@ public class AdminController : ControllerBase
         if (requests == null || requests.Count == 0)
             return BadRequest(new { code = "EMPTY_REQUEST" });
 
-        // Load tất cả keys hiện có để check trùng
+        // Load tất cả keys hiện có để check trùng (key + model)
         var existingKeys = await _db.ApiKeyConfigs.AsNoTracking().ToListAsync(ct);
-        var existingRawKeys = existingKeys
-            .Select(k => k.IsEncrypted ? _encryption.Decrypt(k.KeyValue) : k.KeyValue)
+        var existingKeyModels = existingKeys
+            .Select(k => $"{(k.IsEncrypted ? _encryption.Decrypt(k.KeyValue) : k.KeyValue)}::{k.ModelOverride ?? ""}")
             .ToHashSet();
 
         var added = 0;
@@ -475,7 +478,8 @@ public class AdminController : ControllerBase
             }
 
             var rawKey = req.KeyValue.Trim();
-            if (existingRawKeys.Contains(rawKey))
+            var modelKey = $"{rawKey}::{(string.IsNullOrWhiteSpace(req.ModelOverride) ? "" : req.ModelOverride.Trim())}";
+            if (existingKeyModels.Contains(modelKey))
             {
                 skipped.Add(req.Label);
                 continue;
@@ -498,7 +502,7 @@ public class AdminController : ControllerBase
                 CreatedAt = DateTime.UtcNow,
                 UpdatedAt = DateTime.UtcNow
             });
-            existingRawKeys.Add(rawKey);
+            existingKeyModels.Add(modelKey);
             added++;
         }
 
@@ -584,6 +588,14 @@ public class AdminController : ControllerBase
             allInCooldown = _keyPool.AllKeysInCooldown,
             keys = _keyPool.GetKeyStatuses()
         });
+    }
+
+    /// <summary>POST /admin/api-keys/clear-cooldown — Xóa cooldown tất cả keys trong pool (runtime)</summary>
+    [HttpPost("api-keys/clear-cooldown")]
+    public IActionResult ClearAllCooldowns()
+    {
+        _keyPool.ClearAllCooldowns();
+        return Ok(new { message = $"Cleared cooldown for all {_keyPool.KeyCount} key(s).", totalKeys = _keyPool.KeyCount });
     }
 
     /// <summary>

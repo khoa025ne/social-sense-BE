@@ -40,6 +40,8 @@ public class GeminiApiKeyPool
         public string Provider { get; set; } = "openrouter";
         /// <summary>Model ID override cho provider này. Để trống để dùng model mặc định từ Options.</summary>
         public string? ModelOverride { get; set; }
+        /// <summary>Model này có hỗ trợ generate ảnh không (image generation).</summary>
+        public bool SupportsImageGen { get; set; } = false;
     }
 
     public GeminiApiKeyPool(
@@ -78,7 +80,8 @@ public class GeminiApiKeyPool
                 Key = k.KeyValue,
                 Label = $"{k.Label} (...{k.KeyValue[^4..]})",
                 Provider = k.Provider?.ToLowerInvariant() ?? "openrouter",
-                ModelOverride = string.IsNullOrWhiteSpace(k.ModelOverride) ? null : k.ModelOverride
+                ModelOverride = string.IsNullOrWhiteSpace(k.ModelOverride) ? null : k.ModelOverride,
+                SupportsImageGen = k.SupportsImageGen
             }).ToArray();
         }
 
@@ -129,9 +132,11 @@ public class GeminiApiKeyPool
                 return;
             }
 
-            var oldCooldowns = _slots.ToDictionary(s => s.Key, s => s.CooldownUntil);
+            var oldCooldowns = _slots
+                .GroupBy(s => s.Key)
+                .ToDictionary(g => g.Key, g => g.Max(s => s.CooldownUntil));
 
-            _slots = dbKeys.Select((k, i) =>
+            var dbSlots = dbKeys.Select((k, i) =>
             {
                 // Decrypt key nếu đang được mã hóa
                 string plainKey;
@@ -162,13 +167,28 @@ public class GeminiApiKeyPool
             })
             .Where(s => s != null)
             .Cast<KeySlot>()
-            .ToArray();
+            .ToList();
 
+            // Merge config keys — giữ lại các config key KHÔNG có trong DB (tránh duplicate)
+            var dbKeyValues = new HashSet<string>(dbSlots.Select(s => s.Key), StringComparer.Ordinal);
+            var configSlots = LoadFromConfig()
+                .Where(s => !dbKeyValues.Contains(s.Key))
+                .Select(s => new KeySlot
+                {
+                    Key = s.Key,
+                    Label = s.Label,
+                    Provider = s.Provider,
+                    ModelOverride = s.ModelOverride,
+                    SupportsImageGen = s.SupportsImageGen,
+                    CooldownUntil = oldCooldowns.TryGetValue(s.Key, out var cd) ? cd : DateTime.MinValue
+                });
+
+            _slots = dbSlots.Concat(configSlots).ToArray();
             _counter = 0;
 
             _logger.LogInformation(
-                "🔄 ApiKeyPool reloaded from DB: {Count} active key(s).",
-                _slots.Length);
+                "🔄 ApiKeyPool reloaded: {DbCount} DB key(s) + {CfgCount} config key(s) = {Total} total.",
+                dbSlots.Count, _slots.Length - dbSlots.Count, _slots.Length);
         }
         catch (Exception ex)
         {
@@ -241,6 +261,14 @@ public class GeminiApiKeyPool
                 _slots.Count(s => s.CooldownUntil <= DateTime.UtcNow),
                 _slots.Length);
         }
+    }
+
+    /// <summary>Xóa cooldown của tất cả keys trong pool (dùng khi cần reset sau maintenance).</summary>
+    public void ClearAllCooldowns()
+    {
+        foreach (var slot in _slots)
+            slot.CooldownUntil = DateTime.MinValue;
+        _logger.LogInformation("✅ Cleared cooldown for all {Count} key(s).", _slots.Length);
     }
 
     public bool AllKeysInCooldown

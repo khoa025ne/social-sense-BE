@@ -407,8 +407,8 @@ Enhancement rules:
     }
 
     // ── HuggingFace Inference API — text-to-image ────────────────────────────
-    // Model mặc định: stabilityai/stable-diffusion-xl-base-1.0 (miễn phí với HF token)
-    // Hoặc: black-forest-labs/FLUX.1-schnell (nhanh, chất lượng cao)
+    // LƯU Ý: Railway có thể block DNS cho api-inference.huggingface.co
+    // Dùng router.huggingface.co thay thế (routed endpoint, ít bị block hơn)
     private async Task<string?> TryHuggingFaceAsync(
         string prompt, BannerSpecs specs, GeminiApiKeyPool.KeySlot slot, CancellationToken ct)
     {
@@ -425,32 +425,50 @@ Enhancement rules:
             parameters = new { width, height, num_inference_steps = 4 }
         };
 
-        var msg = new HttpRequestMessage(
-            HttpMethod.Post,
-            $"https://api-inference.huggingface.co/models/{model}")
+        // Thử router.huggingface.co trước (ít bị block hơn api-inference.huggingface.co)
+        var endpoints = new[]
         {
-            Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
+            $"https://router.huggingface.co/hf-inference/models/{model}",
+            $"https://api-inference.huggingface.co/models/{model}"
         };
-        msg.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", slot.Key);
 
-        using var response = await _client.SendAsync(msg, ct);
-        if (!response.IsSuccessStatusCode)
+        foreach (var endpoint in endpoints)
         {
-            var err = await response.Content.ReadAsStringAsync(ct);
-            _logger.LogWarning("HuggingFace image failed: {Status} — {Body}", response.StatusCode, err);
-            if ((int)response.StatusCode is 429)
-                _keyPool.MarkRateLimited(slot.Key, TimeSpan.FromMinutes(60));
-            return null;
+            try
+            {
+                var msg = new HttpRequestMessage(HttpMethod.Post, endpoint)
+                {
+                    Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
+                };
+                msg.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", slot.Key);
+
+                using var response = await _client.SendAsync(msg, ct);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var err = await response.Content.ReadAsStringAsync(ct);
+                    _logger.LogWarning("HuggingFace {Endpoint} failed: {Status} — {Body}", endpoint, response.StatusCode, err);
+                    if ((int)response.StatusCode is 429)
+                        _keyPool.MarkRateLimited(slot.Key, TimeSpan.FromMinutes(60));
+                    continue;
+                }
+
+                var imageBytes = await response.Content.ReadAsByteArrayAsync(ct);
+                if (imageBytes.Length < 1000) continue;
+
+                var contentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
+                var base64 = Convert.ToBase64String(imageBytes);
+                _logger.LogInformation("HuggingFace image OK via {Endpoint}: {Bytes} bytes", endpoint, imageBytes.Length);
+                return $"data:{contentType};base64,{base64}";
+            }
+            catch (Exception ex) when (ex is System.Net.Http.HttpRequestException || ex is System.Net.Sockets.SocketException)
+            {
+                _logger.LogWarning("HuggingFace {Endpoint} DNS/network error: {Msg}", endpoint, ex.Message);
+                // Thử endpoint tiếp theo
+            }
         }
 
-        // HuggingFace trả về binary image
-        var imageBytes = await response.Content.ReadAsByteArrayAsync(ct);
-        if (imageBytes.Length < 1000) return null;
-
-        var contentType = response.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
-        var base64 = Convert.ToBase64String(imageBytes);
-        _logger.LogInformation("HuggingFace image OK: {Bytes} bytes", imageBytes.Length);
-        return $"data:{contentType};base64,{base64}";
+        _logger.LogWarning("HuggingFace: tất cả endpoints đều fail");
+        return null;
     }
 
     // ── OpenAI DALL-E 3 ───────────────────────────────────────────────────────
@@ -584,7 +602,11 @@ Enhancement rules:
         }
     }
 
-    // ── Pollinations.ai — download ảnh tại BE, trả base64 về FE ──────────────
+    // ── Pollinations.ai — NEW API (gen.pollinations.ai) ──────────────────────
+    // Base URL: https://gen.pollinations.ai
+    // Image:    GET /image/{encoded_prompt}?model=flux&width=W&height=H&seed=S
+    // Auth:     Authorization: Bearer sk_xxx  (sk_ keys → rate limit = none)
+    //           Anonymous → also works but slower, lower priority
     private async Task<string?> TryGenerateImagePollinationsAsync(
         string prompt, BannerSpecs specs, bool useKeysOnly, CancellationToken ct)
     {
@@ -599,12 +621,17 @@ Enhancement rules:
             var encodedPrompt = Uri.EscapeDataString(safePrompt);
 
             var pollinationsKeys = _keyPool.GetPollinationsKeys();
-            _logger.LogInformation("Generating image via Pollinations.ai ({W}x{H}, keys={Count}, keysOnly={KeysOnly})",
-                width, height, pollinationsKeys.Count, useKeysOnly);
+            _logger.LogInformation(
+                "Pollinations image gen ({W}x{H}, keys={Count}, keysOnly={KeysOnly}). Keys: [{Keys}]",
+                width, height, pollinationsKeys.Count, useKeysOnly,
+                string.Join(", ", pollinationsKeys.Select(k => $"****{(k.Length >= 4 ? k[^4..] : "short")}")));
 
+            // Build list of keys to try: authenticated first, then anonymous (if !useKeysOnly)
             var keysToTry = pollinationsKeys.Count > 0
                 ? pollinationsKeys
-                : (useKeysOnly ? (IReadOnlyList<string>)new List<string>() : new List<string> { string.Empty });
+                : (useKeysOnly
+                    ? (IReadOnlyList<string>)new List<string>()
+                    : new List<string> { string.Empty });
 
             if (keysToTry.Count == 0)
             {
@@ -612,28 +639,40 @@ Enhancement rules:
                 return null;
             }
 
+            // NEW API: https://gen.pollinations.ai/image/{prompt}?model=flux&width=W&height=H&seed=S
+            var baseUrl = $"https://gen.pollinations.ai/image/{encodedPrompt}?model=flux&width={width}&height={height}&seed={seed}&nologo=true";
+
             foreach (var key in keysToTry)
             {
-                var url = string.IsNullOrWhiteSpace(key)
-                    ? $"https://image.pollinations.ai/prompt/{encodedPrompt}?width={width}&height={height}&seed={seed}&nologo=true&model=flux"
-                    : $"https://image.pollinations.ai/prompt/{encodedPrompt}?width={width}&height={height}&seed={seed}&nologo=true&model=flux&enhance=true&token={key}";
-
                 try
                 {
-                    // GET trực tiếp — Pollinations generate và trả ảnh trong 1 request (15-60s)
-                    using var getReq = new HttpRequestMessage(HttpMethod.Get, url);
-                    using var getResp = await _client.SendAsync(getReq, HttpCompletionOption.ResponseHeadersRead, ct);
+                    using var getReq = new HttpRequestMessage(HttpMethod.Get, baseUrl);
 
+                    // Auth: Bearer header (NEW) — not query param token= (OLD)
+                    if (!string.IsNullOrWhiteSpace(key))
+                        getReq.Headers.Authorization =
+                            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", key);
+
+                    var keySuffix = key.Length >= 4 ? key[^4..] : (string.IsNullOrEmpty(key) ? "anon" : "short");
+                    _logger.LogInformation("Pollinations → GET {Url} (key=****{Suffix})", baseUrl, keySuffix);
+
+                    using var getResp = await _client.SendAsync(getReq, HttpCompletionOption.ResponseHeadersRead, ct);
                     var statusCode = (int)getResp.StatusCode;
-                    _logger.LogInformation("Pollinations GET → {Status} (key=****{Suffix})",
-                        statusCode, key.Length >= 4 ? key[^4..] : "none");
+                    _logger.LogInformation("Pollinations ← {Status} (key=****{Suffix})", statusCode, keySuffix);
 
                     if (statusCode == 402)
                     {
-                        _logger.LogWarning("Pollinations key ****{Suffix} hết balance, thử key tiếp",
-                            key.Length >= 4 ? key[^4..] : "none");
+                        _logger.LogWarning("Pollinations 402 for key=****{Suffix} — skipping", keySuffix);
                         if (!string.IsNullOrWhiteSpace(key))
-                            _keyPool.MarkRateLimited(key, TimeSpan.FromHours(24));
+                            _keyPool.MarkRateLimited(key, TimeSpan.FromHours(1));
+                        continue;
+                    }
+
+                    if (statusCode == 429)
+                    {
+                        _logger.LogWarning("Pollinations 429 rate limit for key=****{Suffix}", keySuffix);
+                        if (!string.IsNullOrWhiteSpace(key))
+                            _keyPool.MarkRateLimited(key, TimeSpan.FromMinutes(30));
                         continue;
                     }
 
@@ -643,34 +682,31 @@ Enhancement rules:
                         return null;
                     }
 
-                    // Download bytes và convert sang base64 data URL
                     var imageBytes = await getResp.Content.ReadAsByteArrayAsync(ct);
                     if (imageBytes.Length < 1000)
                     {
-                        _logger.LogWarning("Pollinations trả ảnh quá nhỏ ({Bytes} bytes), bỏ qua", imageBytes.Length);
+                        _logger.LogWarning("Pollinations ảnh quá nhỏ ({Bytes} bytes)", imageBytes.Length);
                         return null;
                     }
 
                     var contentType = getResp.Content.Headers.ContentType?.MediaType ?? "image/jpeg";
                     var base64 = Convert.ToBase64String(imageBytes);
-                    _logger.LogInformation("Pollinations ảnh OK: {Bytes} bytes → base64 {B64Len} chars",
-                        imageBytes.Length, base64.Length);
-
+                    _logger.LogInformation("✅ Pollinations OK: {Bytes} bytes, key=****{Suffix}", imageBytes.Length, keySuffix);
                     return $"data:{contentType};base64,{base64}";
                 }
                 catch (TaskCanceledException)
                 {
-                    _logger.LogWarning("Pollinations request bị cancel (user navigate đi hoặc timeout)");
+                    _logger.LogWarning("Pollinations request timeout/cancelled");
                     return null;
                 }
             }
 
-            _logger.LogWarning("Tất cả Pollinations keys đều hết balance");
+            _logger.LogWarning("Tất cả Pollinations keys đều fail");
             return null;
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Pollinations.ai image generation failed");
+            _logger.LogWarning(ex, "Pollinations.ai image generation error");
             return null;
         }
     }
