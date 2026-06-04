@@ -105,29 +105,15 @@ public class ImageGenerationService : IImageGenerationService
             contentText, request.DraftPrompt, request.DetectedIndustry,
             request.Platform, specs, request.Answers, ct);
 
-        // ── Multi-provider image generation chain ─────────────────────────────
-        // 1. Pollinations (authenticated keys từ DB)
-        // 2. OpenRouter / HuggingFace keys có SupportsImageGen = true
-        // 3. Pollinations anonymous (không cần key, luôn hoạt động)
+        // ── Image generation chain — CHỈ dùng Pollinations ──────────────────
+        // 1. Pollinations authenticated (key từ DB — unlimited, nhanh)
+        // 2. Pollinations anonymous (fallback — luôn hoạt động)
         string? imageUrl = null;
 
-        // 1. Pollinations với key từ DB
+        // 1. Pollinations với authenticated key
         imageUrl = await TryGenerateImagePollinationsAsync(finalPrompt, specs, useKeysOnly: true, ct);
 
-        // 2. OpenRouter / HuggingFace image keys
-        if (imageUrl == null)
-        {
-            var imageSlots = _keyPool.GetImageSlots();
-            foreach (var slot in imageSlots)
-            {
-                _logger.LogInformation("Trying image generation via {Provider} (model={Model})",
-                    slot.Provider, slot.ModelOverride ?? "default");
-                imageUrl = await TryGenerateImageViaSlotAsync(finalPrompt, specs, slot, ct);
-                if (imageUrl != null) break;
-            }
-        }
-
-        // 3. Pollinations anonymous fallback (không cần key)
+        // 2. Pollinations anonymous fallback
         if (imageUrl == null)
         {
             _logger.LogInformation("Fallback to Pollinations anonymous");
@@ -782,13 +768,14 @@ Enhancement rules:
     private HttpRequestMessage BuildHttpRequest(
         string prompt, GeminiApiKeyPool.KeySlot slot, double temperature, int maxTokens)
     {
-        var baseUrl = slot.Provider switch
+        // Chỉ dùng Groq cho text tasks (analyze, refine prompt)
+        var baseUrl = slot.Provider?.ToLowerInvariant() switch
         {
-            "groq" => "https://api.groq.com/openai/v1",
+            "groq"   => "https://api.groq.com/openai/v1",
             "openai" => "https://api.openai.com/v1",
-            _ => "https://openrouter.ai/api/v1"
+            _        => "https://api.groq.com/openai/v1"
         };
-        var model = slot.ModelOverride ?? "meta-llama/llama-4-scout";
+        var model = slot.ModelOverride ?? "meta-llama/llama-4-scout-17b-16e-instruct";
 
         var body = new
         {
@@ -803,12 +790,6 @@ Enhancement rules:
             Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
         };
         msg.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", slot.Key);
-
-        if (slot.Provider == "openrouter")
-        {
-            msg.Headers.TryAddWithoutValidation("HTTP-Referer", "https://socialsense.app");
-            msg.Headers.TryAddWithoutValidation("X-Title", "SocialSense");
-        }
         return msg;
     }
 

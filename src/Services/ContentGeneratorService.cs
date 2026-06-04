@@ -496,14 +496,12 @@ CRITICAL RULES — MUST FOLLOW:
 
     private static string GetBaseUrl(string provider, string configEndpoint)
     {
-        return provider switch
+        return provider?.ToLowerInvariant() switch
         {
-            "groq"         => "https://api.groq.com/openai/v1",
-            "openai"       => "https://api.openai.com/v1",
-            "openrouter"   => "https://openrouter.ai/api/v1",
-            "pollinations" => "https://gen.pollinations.ai/v1",
-            "huggingface"  => "https://api-inference.huggingface.co/v1",
-            _              => configEndpoint.TrimEnd('/')
+            "groq"   => "https://api.groq.com/openai/v1",
+            "openai" => "https://api.openai.com/v1",
+            // Chỉ dùng Groq cho text generation — loại bỏ OpenRouter/HuggingFace
+            _        => "https://api.groq.com/openai/v1"
         };
     }
 

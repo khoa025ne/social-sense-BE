@@ -165,13 +165,11 @@ public class GeminiKnowledgeExtractor : IKnowledgeExtractor
         return msg;
     }
 
-    private static string GetBaseUrl(string provider) => provider switch
+    private static string GetBaseUrl(string provider) => provider?.ToLowerInvariant() switch
     {
-        "groq"         => "https://api.groq.com/openai/v1",
-        "openai"       => "https://api.openai.com/v1",
-        "pollinations" => "https://gen.pollinations.ai/v1",
-        "huggingface"  => "https://router.huggingface.co/v1",
-        _              => "https://openrouter.ai/api/v1"
+        "groq"   => "https://api.groq.com/openai/v1",
+        "openai" => "https://api.openai.com/v1",
+        _        => "https://api.groq.com/openai/v1"
     };
 
     private static string BuildTrendPrompt(string text, List<RecentTrendDto> recentTrends)
