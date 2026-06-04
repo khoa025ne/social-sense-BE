@@ -222,7 +222,7 @@ public class GeminiApiKeyPool
         return "openrouter";
     }
 
-    /// <summary>Lấy slot tiếp theo theo round-robin (trả về cả Key + Provider).</summary>
+    /// <summary>Lấy slot tiếp theo theo round-robin (trả về cả Key + Provider). Bỏ qua Pollinations vì chỉ dùng cho image.</summary>
     public KeySlot GetNextSlot()
     {
         if (_slots.Length == 0)
@@ -231,18 +231,33 @@ public class GeminiApiKeyPool
         var startIndex = Interlocked.Increment(ref _counter) - 1;
         var now = DateTime.UtcNow;
 
+        // Ưu tiên text slots (không phải pollinations), không trong cooldown
         for (int i = 0; i < _slots.Length; i++)
         {
             var slot = _slots[(startIndex + i) % _slots.Length];
-            if (slot.CooldownUntil <= now)
+            if (slot.CooldownUntil <= now &&
+                !string.Equals(slot.Provider, "pollinations", StringComparison.OrdinalIgnoreCase))
                 return slot;
         }
 
-        var earliest = _slots.OrderBy(s => s.CooldownUntil).First();
-        _logger.LogWarning(
-            "⚠️ All {Count} API keys are in cooldown. Using {Label} (expires at {CooldownUntil:HH:mm:ss}).",
-            _slots.Length, earliest.Label, earliest.CooldownUntil);
-        return earliest;
+        // Fallback: tất cả text slots đều cooldown → lấy slot ít cooldown nhất (không phải pollinations)
+        var earliest = _slots
+            .Where(s => !string.Equals(s.Provider, "pollinations", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(s => s.CooldownUntil)
+            .FirstOrDefault();
+
+        if (earliest != null)
+        {
+            _logger.LogWarning(
+                "⚠️ All text API keys are in cooldown. Using {Label} (expires at {CooldownUntil:HH:mm:ss}).",
+                earliest.Label, earliest.CooldownUntil);
+            return earliest;
+        }
+
+        // Nếu chỉ còn pollinations (không nên xảy ra với config đúng)
+        var any = _slots.OrderBy(s => s.CooldownUntil).First();
+        _logger.LogWarning("⚠️ No text keys available, using {Label} as last resort.", any.Label);
+        return any;
     }
 
     /// <summary>Backward compat — trả về key string.</summary>

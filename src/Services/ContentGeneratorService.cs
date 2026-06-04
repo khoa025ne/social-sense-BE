@@ -857,8 +857,10 @@ Return ONLY this raw JSON object (no ```json wrapper):
   ""brandScore"": 85,
   ""analysis"": ""Sharp Vietnamese analysis: strengths and specific weaknesses of the current writing"",
   ""suggestions"": ""Step-by-step Vietnamese suggestions using psychological copy techniques (FOMO, Status, Pain Point, Emotional Ownership)"",
-  ""refinedContent"": ""The ultimate rewritten version in Vietnamese with aggressive hook, emotional body, and urgent CTA""
-}}";
+  ""refinedContent"": ""The ultimate rewritten version as a PLAIN STRING in Vietnamese with aggressive hook, emotional body, and urgent CTA. Must be a single string value, NOT an object or nested JSON.""
+}}
+
+CRITICAL: refinedContent MUST be a plain string (text only), NOT a JSON object. Never use nested objects for refinedContent.";
 
         Func<HttpRequestMessage> requestFactory = () =>
             BuildRequest(prompt, 0.4, _options.MaxOutputTokens);
@@ -876,10 +878,45 @@ Return ONLY this raw JSON object (no ```json wrapper):
                     var cleaned = StripCodeFence(text).Trim();
                     try
                     {
-                        return JsonSerializer.Deserialize<CheckBrandAlignmentResponse>(cleaned, new JsonSerializerOptions
+                        // Parse qua JsonDocument để xử lý refinedContent linh hoạt (string hoặc object)
+                        using var responseDoc = JsonDocument.Parse(cleaned);
+                        var root = responseDoc.RootElement;
+
+                        string refinedContent;
+                        if (root.TryGetProperty("refinedContent", out var rc))
                         {
-                            PropertyNameCaseInsensitive = true
-                        });
+                            if (rc.ValueKind == JsonValueKind.String)
+                            {
+                                // Model trả đúng format: string
+                                refinedContent = rc.GetString() ?? string.Empty;
+                            }
+                            else if (rc.ValueKind == JsonValueKind.Object)
+                            {
+                                // Một số model (Llama/Groq) trả object thay vì string — flatten thành text
+                                var parts = new List<string>();
+                                if (rc.TryGetProperty("title", out var t)) parts.Add(t.GetString() ?? "");
+                                if (rc.TryGetProperty("content", out var c)) parts.Add(c.GetString() ?? "");
+                                if (rc.TryGetProperty("hashtags", out var h)) parts.Add(h.GetString() ?? "");
+                                if (rc.TryGetProperty("cta", out var cta)) parts.Add(cta.GetString() ?? "");
+                                refinedContent = string.Join("\n\n", parts.Where(p => !string.IsNullOrWhiteSpace(p)));
+                            }
+                            else
+                            {
+                                refinedContent = rc.ToString();
+                            }
+                        }
+                        else
+                        {
+                            refinedContent = request.DraftContent;
+                        }
+
+                        return new CheckBrandAlignmentResponse
+                        {
+                            BrandScore = root.TryGetProperty("brandScore", out var score) ? score.GetInt32() : 50,
+                            Analysis = root.TryGetProperty("analysis", out var an) ? an.GetString() ?? "" : "",
+                            Suggestions = root.TryGetProperty("suggestions", out var sg) ? sg.GetString() ?? "" : "",
+                            RefinedContent = refinedContent
+                        };
                     }
                     catch (JsonException ex)
                     {
