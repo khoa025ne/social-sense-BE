@@ -97,9 +97,11 @@ public class GeminiContextAiExtractor : IContextAiExtractor
 
     private static string GetBaseUrl(string provider) => provider switch
     {
-        "groq" => "https://api.groq.com/openai/v1",
-        "openai" => "https://api.openai.com/v1",
-        _ => "https://openrouter.ai/api/v1"
+        "groq"         => "https://api.groq.com/openai/v1",
+        "openai"       => "https://api.openai.com/v1",
+        "pollinations" => "https://gen.pollinations.ai/v1",
+        "huggingface"  => "https://router.huggingface.co/v1",
+        _              => "https://openrouter.ai/api/v1"
     };
 
     private static string BuildPrompt(List<string> answers, string language)
