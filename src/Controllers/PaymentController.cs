@@ -77,7 +77,7 @@ public class PaymentController : ControllerBase
                 },
                 new
                 {
-                    tier = "Enterprise",
+                    tier = "Ultra",
                     price = _options.EnterpriseMonthlyPrice,
                     currency = "VND",
                     billingCycle = "monthly",
@@ -108,14 +108,18 @@ public class PaymentController : ControllerBase
         if (!int.TryParse(userIdStr, out var userId))
             return Unauthorized(new { code = "AUTH_INVALID_TOKEN" });
 
-        // Validate tier
-        if (!Enum.TryParse<UserTier>(request.Tier, ignoreCase: true, out var tier)
+        // Validate tier — map "Ultra" → Enterprise cho backward compat
+        var tierString = request.Tier?.Trim() ?? "";
+        if (tierString.Equals("Ultra", StringComparison.OrdinalIgnoreCase))
+            tierString = "Enterprise";
+
+        if (!Enum.TryParse<UserTier>(tierString, ignoreCase: true, out var tier)
             || tier == UserTier.Free)
         {
             return BadRequest(new
             {
                 code = "INVALID_TIER",
-                message = "Tier phải là 'Pro' hoặc 'Enterprise'."
+                message = "Tier phải là 'Pro' hoặc 'Ultra'."
             });
         }
 

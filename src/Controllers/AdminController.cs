@@ -324,8 +324,11 @@ public class AdminController : ControllerBase
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
         if (user == null) return NotFound(new { code = "USER_NOT_FOUND" });
 
-        if (!Enum.TryParse<SocialSense.Models.UserTier>(request.Tier, ignoreCase: true, out var tier))
-            return BadRequest(new { code = "INVALID_TIER", message = "Tier phải là Free, Pro hoặc Enterprise." });
+        var tierStr = request.Tier?.Trim() ?? "";
+        if (tierStr.Equals("Ultra", StringComparison.OrdinalIgnoreCase)) tierStr = "Enterprise";
+
+        if (!Enum.TryParse<SocialSense.Models.UserTier>(tierStr, ignoreCase: true, out var tier))
+            return BadRequest(new { code = "INVALID_TIER", message = "Tier phải là Free, Pro hoặc Ultra." });
 
         user.Tier = tier;
 
@@ -333,9 +336,9 @@ public class AdminController : ControllerBase
         int newQuota;
         if (request.CustomDailyQuota.HasValue)
         {
-            // Validate: chỉ Enterprise mới được dùng -1 (unlimited)
+            // Validate: chỉ Ultra (Enterprise) mới được dùng -1 (unlimited)
             if (request.CustomDailyQuota.Value == -1 && tier != SocialSense.Models.UserTier.Enterprise)
-                return BadRequest(new { code = "UNLIMITED_ENTERPRISE_ONLY", message = "Unlimited (-1) chỉ dành cho tier Enterprise." });
+                return BadRequest(new { code = "UNLIMITED_ENTERPRISE_ONLY", message = "Unlimited (-1) chỉ dành cho tier Ultra." });
             if (request.CustomDailyQuota.Value < -1)
                 return BadRequest(new { code = "INVALID_QUOTA", message = "customDailyQuota phải >= -1." });
             newQuota = request.CustomDailyQuota.Value;
@@ -785,9 +788,11 @@ public class AdminController : ControllerBase
         var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == request.UserId, ct);
         if (user == null) return NotFound(new { code = "USER_NOT_FOUND" });
 
-        if (!Enum.TryParse<SocialSense.Models.UserTier>(request.Tier, ignoreCase: true, out var tier)
+        var subTierStr = request.Tier?.Trim() ?? "";
+        if (subTierStr.Equals("Ultra", StringComparison.OrdinalIgnoreCase)) subTierStr = "Enterprise";
+        if (!Enum.TryParse<SocialSense.Models.UserTier>(subTierStr, ignoreCase: true, out var tier)
             || tier == SocialSense.Models.UserTier.Free)
-            return BadRequest(new { code = "INVALID_TIER", message = "Tier phải là Pro hoặc Enterprise." });
+            return BadRequest(new { code = "INVALID_TIER", message = "Tier phải là Pro hoặc Ultra." });
 
         var now     = DateTime.UtcNow;
         var amount  = tier == SocialSense.Models.UserTier.Pro ? 50000 : 79000;

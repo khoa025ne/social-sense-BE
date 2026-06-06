@@ -87,7 +87,7 @@ public class ImageController : ControllerBase
                 remainingQuota = 0,
                 dailyLimit = user.DailyQuotaLimit,
                 message = $"Bạn đã dùng hết {user.DailyQuotaLimit} lượt/ngày của gói {user.Tier}. " +
-                          "Nâng cấp lên Pro/Enterprise để có thêm lượt hoặc quay lại vào ngày mai."
+                          "Nâng cấp lên Pro/Ultra để có thêm lượt hoặc quay lại vào ngày mai."
             });
         }
 

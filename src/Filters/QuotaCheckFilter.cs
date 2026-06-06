@@ -68,7 +68,7 @@ namespace SocialSense.Filters
                     remainingQuota = 0,
                     dailyLimit = user.DailyQuotaLimit,
                     message = $"Bạn đã dùng hết {user.DailyQuotaLimit} lượt/ngày của gói {tierName}. " +
-                              "Nâng cấp lên Pro/Enterprise để có thêm lượt hoặc quay lại vào ngày mai."
+                              "Nâng cấp lên Pro/Ultra để có thêm lượt hoặc quay lại vào ngày mai."
                 })
                 {
                     StatusCode = 429

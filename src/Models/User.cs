@@ -12,7 +12,7 @@ public enum UserTier
 {
     Free = 0,
     Pro = 1,
-    Enterprise = 2
+    Enterprise = 2  // display name: Ultra
 }
 
 public class User
