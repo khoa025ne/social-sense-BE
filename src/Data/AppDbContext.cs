@@ -41,6 +41,8 @@ public class AppDbContext : DbContext
 
     public DbSet<PasswordResetOtp> PasswordResetOtps => Set<PasswordResetOtp>();
 
+    public DbSet<AnalyticsReport> AnalyticsReports => Set<AnalyticsReport>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -168,6 +170,13 @@ public class AppDbContext : DbContext
             entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.HasIndex(x => x.Email);
             entity.HasIndex(x => new { x.Email, x.OtpCode });
+        });
+
+        modelBuilder.Entity<AnalyticsReport>(entity =>
+        {
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
+            entity.HasIndex(x => x.UserId);
+            entity.HasIndex(x => x.CreatedAt);
         });
     }
 }

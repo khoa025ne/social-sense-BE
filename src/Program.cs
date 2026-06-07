@@ -143,6 +143,11 @@ builder.Services.AddHttpClient<IPayOsService, PayOsService>()
 builder.Services.AddSingleton<FileParserFactory>();
 builder.Services.AddHttpClient<IWebScraperClient, WebScraperClient>();
 builder.Services.AddScoped<IKnowledgeIngestionService, KnowledgeIngestionService>();
+builder.Services.AddHttpClient<IAnalyticsService, AnalyticsService>()
+    .ConfigureHttpClient((sp, client) =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(60);
+    });
 builder.Services.AddHttpClient<IKnowledgeExtractor, GeminiKnowledgeExtractor>()
     .ConfigureHttpClient((sp, client) =>
     {
