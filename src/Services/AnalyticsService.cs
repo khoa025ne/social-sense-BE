@@ -292,15 +292,20 @@ public class AnalyticsService : IAnalyticsService
     private async Task<string> SendPromptAsync(string prompt, CancellationToken ct)
     {
         if (!_keyPool.HasKeys) return string.Empty;
-        var maxAttempts = _keyPool.KeyCount;
-        int delayMs = 500;
+
+        // Đảm bảo ít nhất 2 lần thử — 1 lần đầu + 1 lần retry sau delay
+        // Đặc biệt quan trọng với Groq free tier hay bị 429 thoáng qua
+        var maxAttempts = Math.Max(2, _keyPool.KeyCount);
+        int delayMs = 1000;
 
         for (int attempt = 1; attempt <= maxAttempts; attempt++)
         {
             if (_keyPool.AllKeysInCooldown)
             {
-                _logger.LogWarning("Analytics: all keys in cooldown");
-                return string.Empty;
+                _logger.LogWarning("Analytics: all keys in cooldown, waiting 3s before retry...");
+                // Chờ thêm 3s rồi thử lại 1 lần thay vì bỏ cuộc ngay
+                await Task.Delay(3000, ct);
+                if (_keyPool.AllKeysInCooldown) return string.Empty;
             }
             try
             {
@@ -329,15 +334,16 @@ public class AnalyticsService : IAnalyticsService
                 {
                     _keyPool.MarkRateLimited(slot.Key, TimeSpan.FromMinutes(5));
                     _logger.LogWarning("Analytics: key 401, rotating. Attempt {A}/{M}", attempt, maxAttempts);
-                    if (attempt < maxAttempts) { await Task.Delay(200, ct); continue; }
+                    if (attempt < maxAttempts) { await Task.Delay(500, ct); continue; }
                     return string.Empty;
                 }
 
                 if ((int)resp.StatusCode == 429)
                 {
-                    _keyPool.MarkRateLimited(slot.Key, TimeSpan.FromSeconds(60));
-                    _logger.LogWarning("Analytics: key 429, rotating. Attempt {A}/{M}", attempt, maxAttempts);
-                    if (attempt < maxAttempts) { await Task.Delay(delayMs, ct); delayMs *= 2; continue; }
+                    // Giảm cooldown xuống 20s — free tier thường reset nhanh
+                    _keyPool.MarkRateLimited(slot.Key, TimeSpan.FromSeconds(20));
+                    _logger.LogWarning("Analytics: key 429, cooldown 20s. Attempt {A}/{M}", attempt, maxAttempts);
+                    if (attempt < maxAttempts) { await Task.Delay(delayMs, ct); delayMs = Math.Min(delayMs * 2, 5000); continue; }
                     return string.Empty;
                 }
 
@@ -361,7 +367,7 @@ public class AnalyticsService : IAnalyticsService
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Analytics AI call error attempt {A}", attempt);
-                if (attempt < maxAttempts) { await Task.Delay(delayMs, ct); delayMs *= 2; }
+                if (attempt < maxAttempts) { await Task.Delay(delayMs, ct); delayMs = Math.Min(delayMs * 2, 5000); }
             }
         }
         return string.Empty;
@@ -594,11 +600,27 @@ Quy tắc:
     private static AnalyticsResult BuildFallbackCompare(AnalyticsMetrics a, AnalyticsMetrics b)
     {
         var metrics = new List<MetricComparison>();
+
+        // Map chi tiết giải thích cho từng chỉ số
+        var detailMap = new Dictionary<string, string>
+        {
+            ["reach"]           = "Tổng tiếp cận là số người đã thấy bài của bạn xuất hiện trên feed. Con số này phụ thuộc nhiều vào thuật toán — đăng đúng giờ cao điểm và dùng hashtag phù hợp sẽ giúp tăng reach.",
+            ["totalEngagement"] = "Tổng tương tác gồm: thích + bình luận + chia sẻ + lưu. Con số này cho thấy nội dung của bạn có khiến người xem hành động không — đây là chỉ số quan trọng để thuật toán đẩy bài.",
+            ["newFollowers"]    = "Người theo dõi mới là số người chọn xem nội dung của bạn thường xuyên hơn. Follower tăng đều nghĩa là nội dung đủ hấp dẫn để giữ người xem quay lại.",
+            ["engagementRate"]  = "Tỉ lệ tương tác = (tổng tương tác / tổng tiếp cận) × 100. Benchmark TikTok ~5-10%, Facebook ~1-3%, Instagram ~3-6%. Nếu thấp hơn benchmark, thử thêm câu hỏi hoặc CTA kêu gọi tương tác trong bài.",
+            ["completionRate"]  = "Tỷ lệ hoàn thành là % người xem hết video. Benchmark TikTok ~60-70%, YouTube ~40-50%. Nếu thấp, thử rút ngắn video hoặc đặt hook mạnh hơn ở đầu 3 giây.",
+            ["conversionRate"]  = "Tỷ lệ chuyển đổi là % người xem thực hiện hành động bạn muốn (click link, mua hàng, đăng ký). Nếu thấp, thử làm rõ CTA hơn hoặc đặt link dễ thấy hơn trong bio.",
+        };
+
         void Add(string key, string name, double? va, double? vb, bool hib = true)
         {
             if (va == null || vb == null) return;
             var change = vb != 0 ? Math.Round((va.Value - vb.Value) / Math.Abs(vb.Value) * 100, 1) : 0;
             var good = hib ? change >= 0 : change <= 0;
+            var simpleExplain = good
+                ? $"{name} tăng thêm {Math.Abs(change):F1}% so với kỳ trước — kết quả tốt, tiếp tục duy trì"
+                : $"{name} giảm {Math.Abs(change):F1}% so với kỳ trước — cần xem lại chiến lược nội dung";
+
             metrics.Add(new MetricComparison
             {
                 MetricKey = key, MetricName = name,
@@ -606,18 +628,18 @@ Quy tắc:
                 ValueBFormatted = FormatVal(vb.Value, key),
                 ChangePercent = change,
                 Status = good ? "good" : "warning",
-                SimpleExplain = good ? $"{name} tăng {Math.Abs(change):F1}% so với kỳ trước" : $"{name} giảm {Math.Abs(change):F1}% so với kỳ trước",
-                Detail = "",
+                SimpleExplain = simpleExplain,
+                Detail = detailMap.TryGetValue(key, out var d) ? d : "",
                 HigherIsBetter = hib
             });
         }
 
-        Add("reach",              "Tổng tiếp cận",          a.Reach,          b.Reach);
-        Add("totalEngagement",    "Tổng tương tác",          a.TotalEngagement,b.TotalEngagement);
-        Add("newFollowers",       "Người theo dõi mới",      a.NewFollowers,   b.NewFollowers);
-        Add("engagementRate",     "Tỉ lệ tương tác (%)",     a.EngagementRate, b.EngagementRate);
-        Add("completionRate",     "Tỷ lệ hoàn thành (%)",    a.CompletionRate, b.CompletionRate);
-        Add("conversionRate",     "Tỷ lệ chuyển đổi (%)",   a.ConversionRate, b.ConversionRate);
+        Add("reach",           "Tổng tiếp cận",        a.Reach,           b.Reach);
+        Add("totalEngagement", "Tổng tương tác",        a.TotalEngagement, b.TotalEngagement);
+        Add("newFollowers",    "Người theo dõi mới",    a.NewFollowers,    b.NewFollowers);
+        Add("engagementRate",  "Tỉ lệ tương tác (%)",  a.EngagementRate,  b.EngagementRate);
+        Add("completionRate",  "Tỷ lệ hoàn thành (%)", a.CompletionRate,  b.CompletionRate);
+        Add("conversionRate",  "Tỷ lệ chuyển đổi (%)", a.ConversionRate,  b.ConversionRate);
 
         var growCount = metrics.Count(m => m.Status == "good");
         var score = metrics.Count > 0 ? (int)(growCount * 100.0 / metrics.Count) : 50;
@@ -632,9 +654,9 @@ Quy tắc:
                 OverallTrend = score >= 60 ? "growing" : score >= 40 ? "stable" : "declining",
                 Highlights = metrics.Where(m => m.Status == "good").Select(m => m.SimpleExplain).Take(3).ToList(),
                 Warnings = metrics.Where(m => m.Status is "warning" or "critical").Select(m => m.SimpleExplain).Take(3).ToList(),
-                TopRecommendation = "Xem chi tiết từng chỉ số để có gợi ý cụ thể."
+                TopRecommendation = "Xem chi tiết từng chỉ số (bấm vào mũi tên) để hiểu sâu hơn và có gợi ý cải thiện."
             },
-            AiNarrative = "Phân tích cơ bản dựa trên số liệu. AI chi tiết không khả dụng lúc này."
+            AiNarrative = "Phân tích cơ bản dựa trên số liệu. AI chi tiết không khả dụng lúc này — vui lòng thử lại sau."
         };
     }
 
