@@ -46,6 +46,204 @@ public class SeedDataService
         _logger.LogInformation("✅ SeedData completed.");
     }
 
+    /// <summary>
+    /// Thêm các bài xu hướng mới vào DB mỗi lần app khởi động.
+    /// Chỉ insert trend chưa tồn tại (kiểm tra theo Title) — không đụng data cũ.
+    /// Gọi method này sau SeedAsync() trong Program.cs.
+    /// </summary>
+    public async Task SeedMoreTrendsAsync(CancellationToken ct = default)
+    {
+        // Load tất cả title đã có để tránh duplicate
+        var existingTitles = (await _db.Trends.AsNoTracking()
+            .Select(t => t.Title)
+            .ToListAsync(ct))
+            .ToHashSet();
+
+        // Đảm bảo tags cơ bản tồn tại
+        var allTags = await _db.Tags.AsNoTracking().ToListAsync(ct);
+        var tagBySlug = allTags.ToDictionary(t => t.Slug, t => t);
+        var tagByName = allTags.ToDictionary(t => t.Name.ToLower(), t => t);
+
+        // ── DANH SÁCH BÀI XU HƯỚNG MỚI ─────────────────────────────────────
+        // Định dạng: (Title, Summary, SourceUrl, HotLevel, string[] tags)
+        // Thêm bài mới vào đây — hệ thống tự bỏ qua nếu title đã tồn tại.
+        var newTrends = new[]
+        {
+            // Marketing & Mạng xã hội
+            ("Facebook Reels vượt TikTok về thời gian xem tại Việt Nam Q2/2026",
+             "Dữ liệu nội bộ Meta cho thấy Facebook Reels đạt trung bình 45 phút xem/người/ngày tại Việt Nam, lần đầu vượt qua TikTok trong phân khúc 25-40 tuổi.",
+             "https://techinsider.vn/facebook-reels-vuot-tiktok",
+             8, new[]{"Marketing", "Mạng xã hội", "Giải trí"}),
+
+            ("LinkedIn tại Việt Nam tăng 200% người dùng trong 12 tháng",
+             "LinkedIn Việt Nam đạt 6 triệu thành viên, tăng trưởng mạnh nhất Đông Nam Á nhờ làn sóng personal branding và tuyển dụng IT.",
+             "https://business.linkedin.com/vn",
+             7, new[]{"Marketing", "Kinh doanh", "Khởi nghiệp"}),
+
+            ("Podcast marketing bùng nổ — 30% doanh nghiệp Việt đầu tư kênh này",
+             "Theo khảo sát của Nielsen Việt Nam, 30% doanh nghiệp vừa và nhỏ đã triển khai podcast như kênh marketing chính trong năm 2026.",
+             "https://nielsen.com/vn/podcast-report",
+             7, new[]{"Marketing", "Kinh doanh"}),
+
+            // Công nghệ & AI
+            ("Google ra mắt Gemini 2.5 Ultra — benchmark vượt GPT-5 trên toàn diện",
+             "Gemini 2.5 Ultra lập kỷ lục mới trên MMLU và HumanEval, được tích hợp thẳng vào Google Workspace giúp tăng năng suất văn phòng 40%.",
+             "https://blog.google/gemini-2-5-ultra",
+             10, new[]{"Công nghệ", "AI", "Kinh doanh"}),
+
+            ("Chip AI nội địa Việt Nam đầu tiên ra mắt — FPT Silicon",
+             "FPT công bố chip AI FPT-S1 sản xuất tại Việt Nam, nhắm vào thị trường edge computing và IoT công nghiệp với giá thành thấp hơn 40% so với hàng nhập khẩu.",
+             "https://fpt.com.vn/fpt-silicon",
+             9, new[]{"Công nghệ", "Khởi nghiệp", "Đầu tư"}),
+
+            ("Deepfake detection trở thành yêu cầu pháp lý tại Việt Nam 2026",
+             "Bộ TT&TT ban hành nghị định bắt buộc các nền tảng mạng xã hội phải tích hợp công nghệ phát hiện deepfake từ tháng 9/2026.",
+             "https://mic.gov.vn/deepfake-regulation",
+             8, new[]{"Công nghệ", "Chính sách"}),
+
+            // Kinh doanh & Tài chính
+            ("Thanh toán QR Code chiếm 70% giao dịch bán lẻ tại Việt Nam",
+             "Ngân hàng Nhà nước công bố QR Code chiếm 70% tổng giao dịch bán lẻ không dùng tiền mặt, VietQR ghi nhận 10 triệu lượt quét/ngày.",
+             "https://sbv.gov.vn/qr-payment-report",
+             8, new[]{"Tài chính", "Kinh doanh", "Công nghệ"}),
+
+            ("Xuất khẩu sầu riêng Việt Nam vượt 3 tỷ USD lần đầu tiên",
+             "Sầu riêng Việt Nam xuất khẩu đạt 3,2 tỷ USD trong năm 2025, trở thành mặt hàng nông sản xuất khẩu lớn nhất, vượt qua cả tôm và cà phê.",
+             "https://mard.gov.vn/sau-rieng-3ty",
+             8, new[]{"Kinh doanh", "Đầu tư"}),
+
+            ("IPO làn sóng mới: 15 startup Việt lên sàn chứng khoán trong 2026",
+             "Sau MoMo, thêm 15 startup công nghệ Việt Nam đang trong lộ trình IPO trên HoSE và HNX, hút dòng tiền đầu tư nội địa mạnh mẽ.",
+             "https://vietstock.vn/ipo-startup-2026",
+             9, new[]{"Tài chính", "Khởi nghiệp", "Đầu tư"}),
+
+            // Thương mại điện tử
+            ("Shopee và TikTok Shop đồng loạt thu phí hoa hồng mới từ tháng 7",
+             "Shopee tăng phí hoa hồng từ 2% lên 4%, TikTok Shop điều chỉnh lên 3.5%, buộc nhiều nhà bán hàng phải tái tính chiến lược định giá.",
+             "https://ecommercevietnam.net/phi-hoa-hong-moi",
+             9, new[]{"Kinh doanh", "Marketing"}),
+
+            ("Live commerce 'ngủ' phá kỷ lục: streamer bán 5 tỷ trong 8 tiếng",
+             "Một phiên live TikTok Shop kéo dài 8 tiếng liên tục ghi nhận doanh thu 5 tỷ đồng, đánh dấu kỷ lục mới cho thị trường live commerce Việt Nam.",
+             "https://cafebiz.vn/live-commerce-5-ty",
+             8, new[]{"Marketing", "Kinh doanh"}),
+
+            // Sức khỏe & Lifestyle
+            ("GLP-1 — thuốc giảm cân thế hệ mới gây sốt tại Việt Nam",
+             "Các loại thuốc GLP-1 như Ozempic và Wegovy đang tạo cơn sốt tại Việt Nam với nhu cầu tăng 500%, Bộ Y tế vào cuộc kiểm soát giá và nguồn cung.",
+             "https://suckhoedoisong.vn/glp1-viet-nam",
+             9, new[]{"Sức khỏe"}),
+
+            ("Phong trào không điện thoại buổi sáng lan rộng ở giới trẻ Việt",
+             "Thách thức '1 giờ không màn hình sau khi thức dậy' thu hút 2 triệu người Việt tham gia trên TikTok, thúc đẩy nhu cầu sổ tay, sách giấy tăng 40%.",
+             "https://vnexpress.net/khong-dien-thoai-buoi-sang",
+             7, new[]{"Sức khỏe", "Tâm lý", "Giải trí"}),
+
+            // Du lịch
+            ("Đà Lạt thu hút 1 triệu khách trong mùa hè 2026 — kỷ lục mới",
+             "Đà Lạt đón 1,1 triệu lượt khách trong tháng 6-7/2026, cao nhất lịch sử, kéo theo làn sóng đầu tư homestay và resort tăng mạnh.",
+             "https://dalattourist.com.vn/ky-luc-he-2026",
+             8, new[]{"Du lịch", "Đầu tư", "Bất động sản"}),
+
+            ("Vé tàu cao tốc Hà Nội – TP.HCM dự kiến bán vào cuối 2026",
+             "Dự án đường sắt tốc độ cao Bắc-Nam tiến độ nhanh hơn kỳ vọng, Bộ GTVT xác nhận đoạn Hà Nội – Vinh có thể khai thác thử nghiệm cuối năm 2026.",
+             "https://baochinhphu.vn/tau-cao-toc-bac-nam",
+             9, new[]{"Du lịch", "Chính sách", "Đầu tư"}),
+
+            // Giáo dục
+            ("Chứng chỉ AI của Google và Meta được công nhận thay bằng cử nhân IT",
+             "Nhiều tập đoàn công nghệ toàn cầu chính thức chấp nhận chứng chỉ Google AI Essentials và Meta AR/VR Developer thay thế bằng cử nhân 4 năm trong tuyển dụng.",
+             "https://vnbusiness.vn/chung-chi-ai-thay-bang-dai-hoc",
+             9, new[]{"Giáo dục", "Công nghệ", "Khởi nghiệp"}),
+
+            // Bất động sản
+            ("Hà Nội mở thêm 3 tuyến metro — BĐS vùng ven tăng nóng",
+             "Ba tuyến metro số 2, 3 và 5 tại Hà Nội đồng loạt khởi công, giá nhà đất tại các ga dự kiến tăng 20-35% trong vòng 2 năm.",
+             "https://cafef.vn/ha-noi-metro-bds",
+             9, new[]{"Bất động sản", "Đầu tư", "Chính sách"}),
+
+            // Môi trường & Năng lượng
+            ("Điện gió ngoài khơi Việt Nam — dự án 12 tỷ USD khởi động",
+             "Liên doanh Equinor-PetroVietnam chính thức khởi động dự án điện gió ngoài khơi 12 tỷ USD tại Bình Thuận, cung cấp 3.5GW cho lưới điện quốc gia.",
+             "https://petrovietnam.petro.com.vn/dien-gio-ngoai-khoi",
+             8, new[]{"Môi trường", "Đầu tư", "Chính sách"}),
+
+            // Làm đẹp
+            ("K-beauty vs V-beauty — thương hiệu làm đẹp Việt chiếm 25% thị phần nội địa",
+             "Các thương hiệu mỹ phẩm thuần Việt như Cocoon, Beauty of Joseon VN đạt 25% thị phần nội địa, đẩy lùi sự thống trị của hàng Hàn Quốc.",
+             "https://beautyvietnam.vn/v-beauty-thi-phan",
+             7, new[]{"Làm đẹp", "Kinh doanh", "Thời trang"}),
+
+            // Thể thao
+            ("SEA Games 34 — Việt Nam đặt mục tiêu top 2 toàn đoàn",
+             "Việt Nam đầu tư kỷ lục 500 tỷ đồng cho đoàn thể thao tham dự SEA Games 34 tại Philippines, đặt mục tiêu giành ít nhất 120 HCV.",
+             "https://thethao.vnexpress.net/sea-games-34",
+             8, new[]{"Thể thao", "Chính sách"}),
+        };
+        // ── KẾT THÚC DANH SÁCH BÀI MỚI ────────────────────────────────────────
+
+        var rng = new Random();
+        var addedCount = 0;
+
+        foreach (var (title, summary, sourceUrl, hotLevel, tags) in newTrends)
+        {
+            // Bỏ qua nếu đã có
+            if (existingTitles.Contains(title)) continue;
+
+            var trend = new Trend
+            {
+                Title     = title,
+                Summary   = summary,
+                SourceUrl = sourceUrl,
+                HotLevel  = hotLevel,
+                Sentiment = hotLevel >= 8 ? "positive" : hotLevel >= 5 ? "neutral" : "negative",
+                CreatedAt = DateTime.UtcNow.AddDays(-rng.Next(0, 7)),
+                UpdatedAt = DateTime.UtcNow,
+            };
+            _db.Trends.Add(trend);
+            await _db.SaveChangesAsync(ct);
+            existingTitles.Add(title); // tránh trùng ngay trong vòng lặp
+
+            // Gán tags
+            var trendTags = new List<TrendTag>();
+            foreach (var tagRef in tags)
+            {
+                Tag? tag = null;
+                var slug = tagRef.ToLower().Trim()
+                    .Replace(" ", "-")
+                    .Replace("đ", "d");
+                tagBySlug.TryGetValue(slug, out tag);
+                if (tag == null) tagByName.TryGetValue(tagRef.ToLower(), out tag);
+
+                if (tag == null)
+                {
+                    // Tạo tag mới nếu chưa có
+                    tag = new Tag { Name = tagRef, Slug = slug };
+                    _db.Tags.Add(tag);
+                    await _db.SaveChangesAsync(ct);
+                    tagBySlug[slug] = tag;
+                    tagByName[tagRef.ToLower()] = tag;
+                }
+
+                if (!trendTags.Any(tt => tt.TagId == tag.Id))
+                    trendTags.Add(new TrendTag { TrendId = trend.Id, TagId = tag.Id });
+            }
+
+            if (trendTags.Any())
+            {
+                _db.TrendTags.AddRange(trendTags);
+                await _db.SaveChangesAsync(ct);
+            }
+
+            addedCount++;
+        }
+
+        if (addedCount > 0)
+            _logger.LogInformation("🆕 SeedMoreTrends: đã thêm {Count} bài xu hướng mới.", addedCount);
+        else
+            _logger.LogInformation("⏭ SeedMoreTrends: không có bài xu hướng mới cần thêm.");
+    }
+
     // ── ROLES ─────────────────────────────────────────────────────────────────
     private async Task<Dictionary<string, Role>> SeedRolesAsync(CancellationToken ct)
     {

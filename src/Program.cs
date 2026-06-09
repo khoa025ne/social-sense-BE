@@ -209,6 +209,10 @@ using (var scope = app.Services.CreateScope())
 
         // Seed dữ liệu mẫu nếu DB trống
         await seeder.SeedAsync();
+
+        // Tự động thêm bài xu hướng mới mỗi lần khởi động
+        // (bỏ qua những bài đã có, không ảnh hưởng data cũ)
+        await seeder.SeedMoreTrendsAsync();
     }
     catch (Exception ex)
     {
@@ -252,6 +256,78 @@ app.MapPost("/admin/seed", async (SeedDataService seeder, CancellationToken ct) 
     return Results.Ok(new { message = "Seed completed." });
 }).RequireAuthorization("AdminOnly");
 
+// POST /admin/trends/bulk — Admin only, thêm nhiều trend mới vào DB
+app.MapPost("/admin/trends/bulk", async (
+    BulkTrendRequest req,
+    AppDbContext db,
+    CancellationToken ct) =>
+{
+    if (req.Trends == null || req.Trends.Count == 0)
+        return Results.BadRequest(new { message = "Danh sách trend không được để trống." });
+
+    // Load toàn bộ tags để map theo slug
+    var allTags = await db.Tags.AsNoTracking().ToListAsync(ct);
+    var tagBySlug = allTags.ToDictionary(t => t.Slug, t => t);
+    var tagByName = allTags.ToDictionary(t => t.Name.ToLower(), t => t);
+
+    var inserted = new List<object>();
+
+    foreach (var item in req.Trends)
+    {
+        var trend = new SocialSense.Models.Trend
+        {
+            Title     = item.Title.Length > 200 ? item.Title[..197] + "..." : item.Title,
+            Summary   = item.Summary.Length > 1000 ? item.Summary[..997] + "..." : item.Summary,
+            SourceUrl = item.SourceUrl ?? "internal",
+            HotLevel  = Math.Clamp(item.HotLevel, 1, 10),
+            Sentiment = item.HotLevel >= 8 ? "positive" : item.HotLevel >= 5 ? "neutral" : "negative",
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow,
+        };
+        db.Trends.Add(trend);
+        await db.SaveChangesAsync(ct); // cần Id trước khi gán tags
+
+        // Gán tags
+        var trendTags = new List<SocialSense.Models.TrendTag>();
+        foreach (var tagRef in item.Tags ?? new())
+        {
+            SocialSense.Models.Tag? tag = null;
+            // tìm theo slug trước, fallback theo tên
+            tagBySlug.TryGetValue(tagRef.ToLower().Replace(" ", "-"), out tag);
+            if (tag == null) tagByName.TryGetValue(tagRef.ToLower(), out tag);
+            if (tag == null)
+            {
+                // tạo tag mới nếu chưa có
+                var slug = System.Text.RegularExpressions.Regex.Replace(
+                    tagRef.ToLower().Trim(), @"\s+", "-");
+                tag = new SocialSense.Models.Tag { Name = tagRef, Slug = slug };
+                db.Tags.Add(tag);
+                await db.SaveChangesAsync(ct);
+                tagBySlug[slug] = tag;
+                tagByName[tagRef.ToLower()] = tag;
+            }
+            if (!trendTags.Any(tt => tt.TagId == tag.Id))
+                trendTags.Add(new SocialSense.Models.TrendTag { TrendId = trend.Id, TagId = tag.Id });
+        }
+        db.TrendTags.AddRange(trendTags);
+        await db.SaveChangesAsync(ct);
+
+        inserted.Add(new { id = trend.Id, title = trend.Title, tags = item.Tags });
+    }
+
+    return Results.Ok(new { inserted = inserted.Count, trends = inserted });
+}).RequireAuthorization("AdminOnly");
+
 app.MapControllers();
 
 app.Run();
+
+// ── Request DTOs for bulk trend endpoint ──────────────────────────────────────
+record BulkTrendRequest(List<BulkTrendItem> Trends);
+record BulkTrendItem(
+    string Title,
+    string Summary,
+    string? SourceUrl,
+    int HotLevel,
+    List<string>? Tags
+);
