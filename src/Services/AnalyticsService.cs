@@ -369,7 +369,8 @@ public class AnalyticsService : IAnalyticsService
                 if (!resp.IsSuccessStatusCode)
                 {
                     var err = await resp.Content.ReadAsStringAsync(ct);
-                    _logger.LogWarning("Analytics AI failed: {Status} — {Body}", resp.StatusCode, err);
+                    _logger.LogWarning("Analytics AI failed: {Status} — {Body}. Key: {Label}. Rotating...", resp.StatusCode, err, slot.Label);
+                    if (attempt < maxAttempts) { await Task.Delay(200, ct); continue; }
                     return string.Empty;
                 }
 
