@@ -158,11 +158,33 @@ public class TrendQueryService : ITrendQueryService
             Title = t.Title,
             Summary = t.Summary,
             SourceUrl = t.SourceUrl,
+            SourceName = DeriveSourceName(t.SourceUrl),
             HotLevel = t.HotLevel,
             CreatedAt = t.CreatedAt,
             Tags = tagsByTrend.TryGetValue(t.Id, out var tags) ? tags : new List<TagResponse>()
         }).ToList();
 
         return new TrendListResponse { Page = page, PageSize = pageSize, Total = total, Items = items };
+    }
+
+    /// <summary>Derive tên nguồn hiển thị từ URL.</summary>
+    private static string DeriveSourceName(string sourceUrl)
+    {
+        if (string.IsNullOrWhiteSpace(sourceUrl)) return "Không rõ nguồn";
+        if (sourceUrl.Contains("fastmoss.com")) return "FastMoss";
+        if (sourceUrl.Contains("google.com/rss") || sourceUrl.Contains("news.google.com")) return "Google News";
+        if (sourceUrl.Contains("tiktok.com")) return "TikTok";
+        if (sourceUrl.Contains("vnexpress.net")) return "VnExpress";
+        if (sourceUrl.Contains("reddit.com")) return "Reddit";
+        if (sourceUrl.Contains("youtube.com")) return "YouTube";
+        try
+        {
+            var uri = new Uri(sourceUrl);
+            return uri.Host.Replace("www.", "");
+        }
+        catch
+        {
+            return "Nguồn khác";
+        }
     }
 }

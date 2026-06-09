@@ -10,6 +10,9 @@ public class TrendItemResponse
 
     public string SourceUrl { get; set; } = string.Empty;
 
+    /// <summary>Tên nguồn hiển thị: Google News, FastMoss, v.v.</summary>
+    public string SourceName { get; set; } = string.Empty;
+
     public int HotLevel { get; set; }
 
     public DateTime CreatedAt { get; set; }
