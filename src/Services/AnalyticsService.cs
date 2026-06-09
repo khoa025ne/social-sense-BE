@@ -289,15 +289,19 @@ public class AnalyticsService : IAnalyticsService
                ?? BuildFallbackCompare(a, b);
     }
 
+    private static string GetAnalyticsBaseUrl(string? provider) =>
+        provider?.ToLowerInvariant() switch
+        {
+            "openrouter" => "https://openrouter.ai/api/v1",
+            "openai"     => "https://api.openai.com/v1",
+            _            => "https://api.groq.com/openai/v1"   // groq + default
+        };
+
     private async Task<string> SendPromptAsync(string prompt, CancellationToken ct)
     {
         if (!_keyPool.HasKeys) return string.Empty;
-
-        // Đảm bảo ít nhất 2 lần thử — 1 lần đầu + 1 lần retry sau delay
-        // Đặc biệt quan trọng với Groq free tier hay bị 429 thoáng qua
         var maxAttempts = Math.Max(2, _keyPool.KeyCount);
         int delayMs = 1000;
-
         for (int attempt = 1; attempt <= maxAttempts; attempt++)
         {
             if (_keyPool.AllKeysInCooldown)
@@ -310,7 +314,7 @@ public class AnalyticsService : IAnalyticsService
             try
             {
                 var slot = _keyPool.GetNextSlot();
-                var baseUrl = "https://api.groq.com/openai/v1";
+                var baseUrl = GetAnalyticsBaseUrl(slot.Provider);
                 var model = slot.ModelOverride ?? _options.Model;
 
                 var body = new
@@ -327,6 +331,13 @@ public class AnalyticsService : IAnalyticsService
                 };
                 req.Headers.Authorization =
                     new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", slot.Key);
+
+                // OpenRouter yêu cầu thêm header này
+                if (slot.Provider?.ToLowerInvariant() == "openrouter")
+                {
+                    req.Headers.TryAddWithoutValidation("HTTP-Referer", "https://socialsense.app");
+                    req.Headers.TryAddWithoutValidation("X-Title", "SocialSense");
+                }
 
                 using var resp = await _client.SendAsync(req, ct);
 
