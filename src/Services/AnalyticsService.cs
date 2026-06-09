@@ -275,8 +275,12 @@ public class AnalyticsService : IAnalyticsService
     {
         var prompt = BuildSinglePrompt(m);
         var raw = await SendPromptAsync(prompt, ct);
-        return ParseAiResult(raw, m.Platform, "single", m.PeriodLabel, null)
-               ?? BuildFallbackSingle(m);
+        var parsed = ParseAiResult(raw, m.Platform, "single", m.PeriodLabel, null);
+        if (parsed == null)
+        {
+            throw new InvalidOperationException("Không thể kết nối AI để phân tích. Vui lòng kiểm tra kết nối và thử lại.");
+        }
+        return parsed;
     }
 
     // ── AI: compare ───────────────────────────────────────────────────────────
@@ -285,8 +289,12 @@ public class AnalyticsService : IAnalyticsService
     {
         var prompt = BuildComparePrompt(a, b);
         var raw = await SendPromptAsync(prompt, ct);
-        return ParseAiResult(raw, a.Platform, "compare", a.PeriodLabel, b.PeriodLabel)
-               ?? BuildFallbackCompare(a, b);
+        var parsed = ParseAiResult(raw, a.Platform, "compare", a.PeriodLabel, b.PeriodLabel);
+        if (parsed == null)
+        {
+            throw new InvalidOperationException("Không thể kết nối AI để so sánh phân tích. Vui lòng kiểm tra kết nối và thử lại.");
+        }
+        return parsed;
     }
 
     private static string GetAnalyticsBaseUrl(string? provider) =>

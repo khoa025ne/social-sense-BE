@@ -78,8 +78,15 @@ public class AnalyticsController : ControllerBase
         if (quota == null) return Unauthorized(new { code = "USER_NOT_FOUND" });
         if (quota.Value <= 0) return StatusCode(429, new { code = "QUOTA_EXCEEDED", message = "Hết quota hôm nay." });
 
-        var result = await _service.AnalyzeSingleAsync(userId, request, ct);
-        return Ok(result);
+        try
+        {
+            var result = await _service.AnalyzeSingleAsync(userId, request, ct);
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(503, new { code = "AI_ERROR", message = ex.Message });
+        }
     }
 
     /// <summary>
@@ -96,8 +103,15 @@ public class AnalyticsController : ControllerBase
         if (quota == null) return Unauthorized(new { code = "USER_NOT_FOUND" });
         if (quota.Value <= 0) return StatusCode(429, new { code = "QUOTA_EXCEEDED", message = "Hết quota hôm nay." });
 
-        var result = await _service.AnalyzeCompareAsync(userId, request, ct);
-        return Ok(result);
+        try
+        {
+            var result = await _service.AnalyzeCompareAsync(userId, request, ct);
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            return StatusCode(503, new { code = "AI_ERROR", message = ex.Message });
+        }
     }
 
     /// <summary>
@@ -125,8 +139,15 @@ public class AnalyticsController : ControllerBase
         {
             using var stream = file.OpenReadStream();
             var parsed = await _service.ParseExcelAsync(stream, ct);
-            var result = await _service.AnalyzeCompareAsync(userId, parsed, ct);
-            return Ok(result);
+            try
+            {
+                var result = await _service.AnalyzeCompareAsync(userId, parsed, ct);
+                return Ok(result);
+            }
+            catch (Exception aiEx)
+            {
+                return StatusCode(503, new { code = "AI_ERROR", message = aiEx.Message });
+            }
         }
         catch (Exception ex)
         {
