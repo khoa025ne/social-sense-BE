@@ -379,6 +379,17 @@ Kỳ báo cáo: {m.PeriodLabel}
 Số liệu:
 {metricsStr}
 
+QUAN TRỌNG về simpleExplain — phải viết theo nguyên tắc sau:
+- Dùng ngôn ngữ đời thường, TRÁNH thuật ngữ kỹ thuật
+- Giải thích CHỈ SỐ ĐÓ LÀ GÌ trước (1-2 từ), rồi mới nói ý nghĩa con số
+- Với chỉ số %: luôn dùng ví dụ cụ thể để so sánh
+  VD engagementRate 5%: Cứ 100 người xem bài, có 5 người thích/bình luận/chia sẻ — tỉ lệ này được gọi là tương tác
+  VD completionRate 70%: 70 trên 100 người xem video của bạn đến hết — con số này cho thấy nội dung đủ hấp dẫn giữ người xem
+  VD CTR 3%: Cứ 100 người thấy bài, có 3 người bấm vào link — đây là tỉ lệ nhấp vào nội dung của bạn
+  VD conversionRate 2%: Cứ 100 người xem, có 2 người thực hiện hành động bạn muốn (mua hàng, đăng ký...)
+- Với chỉ số số lượng: nói đơn giản con số đó nghĩa là gì
+  VD reach 50000: 50.000 người đã thấy bài đăng của bạn xuất hiện trên feed của họ
+
 Trả về JSON theo đúng schema sau:
 {{
   ""metrics"": [
@@ -389,8 +400,8 @@ Trả về JSON theo đúng schema sau:
       ""valueBFormatted"": null,
       ""changePercent"": null,
       ""status"": ""good"",
-      ""simpleExplain"": ""Giải thích ngắn gọn 1 câu cho người mới"",
-      ""detail"": ""Phân tích chuyên sâu 2-3 câu"",
+      ""simpleExplain"": ""Giải thích theo nguyên tắc trên — bắt buộc dùng ngôn ngữ đời thường"",
+      ""detail"": ""Phân tích chuyên sâu 2-3 câu, so sánh với benchmark ngành"",
       ""higherIsBetter"": true
     }}
   ],
@@ -401,7 +412,7 @@ Trả về JSON theo đúng schema sau:
     ""overallTrend"": ""growing"",
     ""topRecommendation"": ""Gợi ý hành động cụ thể nhất""
   }},
-  ""aiNarrative"": ""Đoạn văn tổng kết tự nhiên tiếng Việt 3-4 câu""
+  ""aiNarrative"": ""Đoạn văn tổng kết tự nhiên tiếng Việt 3-4 câu, dùng ngôn ngữ đơn giản như đang nói chuyện với người mới""
 }}
 
 Quy tắc status: good (số tốt), warning (cần chú ý), critical (đáng lo ngại), neutral (không đánh giá được).
@@ -428,6 +439,17 @@ Số liệu Kỳ A:
 Số liệu Kỳ B:
 {metricsB}
 
+QUAN TRỌNG về simpleExplain — phải viết theo nguyên tắc sau:
+- Dùng ngôn ngữ đời thường, TRÁNH thuật ngữ kỹ thuật
+- Giải thích CHỈ SỐ ĐÓ LÀ GÌ (rất ngắn), rồi nói kết quả so sánh bằng con số cụ thể
+- Với chỉ số %: giải thích ý nghĩa bằng ví dụ cứ 100 người...
+  VD engagementRate tăng từ 3% lên 5%: Tỉ lệ người xem có tương tác tăng từ 3 lên 5 người trên 100 — tức là nội dung hấp dẫn hơn kỳ trước
+  VD completionRate giảm: Tỉ lệ xem hết video giảm — nghĩa là người xem đang bỏ video sớm hơn kỳ trước
+  VD CTR: Tỉ lệ người bấm vào link trong bài tăng/giảm X% — nghĩa là CTA của bạn đang hiệu quả hơn/kém hơn
+- Với chỉ số số lượng: dùng con số thực để so sánh
+  VD reach tăng: Số người thấy bài tăng thêm X người (+Y%) so với kỳ trước
+- LUÔN kết thúc bằng hàm ý: tốt hay chưa tốt, cần làm gì
+
 Trả về JSON theo đúng schema sau:
 {{
   ""metrics"": [
@@ -438,8 +460,8 @@ Trả về JSON theo đúng schema sau:
       ""valueBFormatted"": ""419,000"",
       ""changePercent"": 15.2,
       ""status"": ""good"",
-      ""simpleExplain"": ""Giải thích 1 câu: so sánh 2 kỳ, ý nghĩa cho người mới"",
-      ""detail"": ""Phân tích chuyên sâu 2-3 câu tại sao tăng/giảm và ảnh hưởng thế nào"",
+      ""simpleExplain"": ""Giải thích theo nguyên tắc trên — bắt buộc dùng ngôn ngữ đời thường"",
+      ""detail"": ""Phân tích chuyên sâu 2-3 câu tại sao tăng/giảm và ảnh hưởng thế nào, so với benchmark ngành"",
       ""higherIsBetter"": true
     }}
   ],
@@ -448,9 +470,9 @@ Trả về JSON theo đúng schema sau:
     ""warnings"": [""Điểm cần chú ý 1""],
     ""overallScore"": 78,
     ""overallTrend"": ""growing"",
-    ""topRecommendation"": ""Gợi ý hành động ưu tiên nhất dựa trên số liệu""
+    ""topRecommendation"": ""Gợi ý hành động ưu tiên nhất dựa trên số liệu, viết như đang tư vấn cho người mới""
   }},
-  ""aiNarrative"": ""Đoạn tường thuật tự nhiên tiếng Việt 4-5 câu tóm tắt toàn bộ kỳ và so sánh""
+  ""aiNarrative"": ""Đoạn tường thuật 4-5 câu tiếng Việt đơn giản, như đang kể chuyện cho người mới: kỳ này như thế nào, so với kỳ trước ra sao, điều gì đáng mừng, điều gì cần chú ý""
 }}
 
 Quy tắc:
