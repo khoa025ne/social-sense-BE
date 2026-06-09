@@ -62,30 +62,6 @@ public class ContentController : ControllerBase
         return Ok(response);
     }
 
-    [HttpPost("check-alignment")]
-    public async Task<IActionResult> CheckBrandAlignment([FromBody] CheckBrandAlignmentRequest request, CancellationToken ct)
-    {
-        // Lấy UserId từ JWT claim
-        var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        if (string.IsNullOrEmpty(userIdStr) || !int.TryParse(userIdStr, out var userId))
-            return Unauthorized(new { code = "AUTH_INVALID_TOKEN" });
-
-        request.UserId = userId;
-
-        if (string.IsNullOrWhiteSpace(request.DraftContent) || request.DraftContent.Length < 10)
-        {
-            return BadRequest(new { code = "CONTENT_DRAFT_INVALID", message = "DraftContent is required and must be at least 10 characters." });
-        }
-
-        var response = await _service.CheckBrandAlignmentAsync(request, ct);
-        if (response == null)
-        {
-            return NotFound();
-        }
-
-        return Ok(response);
-    }
-
     [HttpGet("history")]
     public async Task<IActionResult> GetHistory(
         [FromQuery] int page = 1,
