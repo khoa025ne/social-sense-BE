@@ -1,3 +1,5 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using SocialSense.DTOs.Trends;
 using SocialSense.Services;
@@ -31,5 +33,20 @@ public class TrendsController : ControllerBase
     {
         var tags = await _service.GetTagsAsync(ct);
         return Ok(tags);
+    }
+
+    [HttpGet("recommended")]
+    [Authorize]
+    public async Task<IActionResult> GetRecommended(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (string.IsNullOrEmpty(userIdStr) || !int.TryParse(userIdStr, out var userId))
+            return Unauthorized(new { code = "AUTH_INVALID_TOKEN" });
+
+        var result = await _service.GetRecommendedAsync(userId, page, pageSize, ct);
+        return Ok(result);
     }
 }
