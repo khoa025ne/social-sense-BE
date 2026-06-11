@@ -319,6 +319,14 @@ public class ContentGeneratorService : IContentGeneratorService
             _logger.LogError(ex, "Failed to save PersonaDriven history for user {UserId}", request.UserId);
         }
 
+        // Trả null nếu AI không sinh được content — controller sẽ trả 404
+        // để FE biết là thất bại thật sự, không phải 200 với items rỗng
+        if (items.Count == 0)
+        {
+            _logger.LogWarning("PersonaDriven generate returned 0 items for user {UserId}", request.UserId);
+            return null;
+        }
+
         return new GenerateContentResponse
         {
             Items = items,
@@ -328,7 +336,7 @@ public class ContentGeneratorService : IContentGeneratorService
     }
 
     /// <summary>
-    /// Prompt "playbook tâm lý" — AI đọc persona, tự suy luận ngành nghề,
+    /// Prompt "playbook tâm lý"
     /// sản phẩm, pain point của khách hàng rồi áp dụng đúng công thức tâm lý.
     /// Không phụ thuộc trend — phù hợp BĐS, bán hàng, dịch vụ, v.v.
     /// </summary>
