@@ -47,6 +47,74 @@ public class SeedDataService
     }
 
     /// <summary>
+    /// Xoá toàn bộ TrendTags cũ (bị nhiễu tag ngẫu nhiên) và seed lại
+    /// chỉ với primary tag đúng cho từng trend.
+    /// An toàn — không đụng Users, ContentHistories hay data khác.
+    /// </summary>
+    public async Task ReseedTrendTagsAsync(CancellationToken ct = default)
+    {
+        _logger.LogInformation("🔄 ReseedTrendTags: bắt đầu xoá TrendTags cũ...");
+
+        // Xoá hết TrendTags hiện tại
+        var existing = await _db.TrendTags.ToListAsync(ct);
+        _db.TrendTags.RemoveRange(existing);
+        await _db.SaveChangesAsync(ct);
+        _logger.LogInformation("🗑 Đã xoá {Count} TrendTag cũ.", existing.Count);
+
+        // Load lại tags và trends từ DB
+        var tags   = await _db.Tags.AsNoTracking().ToListAsync(ct);
+        var trends = await _db.Trends.AsNoTracking().ToListAsync(ct);
+
+        if (tags.Count == 0 || trends.Count == 0)
+        {
+            _logger.LogWarning("⚠ Không có tags hoặc trends trong DB — bỏ qua ReseedTrendTags.");
+            return;
+        }
+
+        var tagBySlug = tags.ToDictionary(t => t.Slug, t => t, StringComparer.OrdinalIgnoreCase);
+        var tagByName = tags.ToDictionary(t => t.Name.ToLower(), t => t);
+
+        var newTrendTags = new List<TrendTag>();
+
+        foreach (var trend in trends)
+        {
+            // Tìm tag phù hợp nhất dựa trên title của trend
+            Tag? matchedTag = null;
+
+            // Thử khớp theo tên tag trong title
+            foreach (var tag in tags)
+            {
+                if (trend.Title.Contains(tag.Name, StringComparison.OrdinalIgnoreCase))
+                {
+                    matchedTag = tag;
+                    break;
+                }
+            }
+
+            // Fallback: dùng tag đầu tiên tìm được theo slug trong summary
+            if (matchedTag == null)
+            {
+                foreach (var tag in tags)
+                {
+                    if (trend.Summary != null && trend.Summary.Contains(tag.Name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        matchedTag = tag;
+                        break;
+                    }
+                }
+            }
+
+            if (matchedTag != null)
+                newTrendTags.Add(new TrendTag { TrendId = trend.Id, TagId = matchedTag.Id });
+        }
+
+        _db.TrendTags.AddRange(newTrendTags);
+        await _db.SaveChangesAsync(ct);
+
+        _logger.LogInformation("✅ ReseedTrendTags hoàn tất: đã thêm {Count} TrendTag mới.", newTrendTags.Count);
+    }
+
+    /// <summary>
     /// Thêm các bài xu hướng mới vào DB mỗi lần app khởi động.
     /// Chỉ insert trend chưa tồn tại (kiểm tra theo Title) — không đụng data cũ.
     /// Gọi method này sau SeedAsync() trong Program.cs.
@@ -566,21 +634,15 @@ public class SeedDataService
         _db.Trends.AddRange(trendList);
         await _db.SaveChangesAsync(ct);
 
-        // TrendTags — mỗi trend 2-3 tags
+        // TrendTags — chỉ gán primary tag, không random tag phụ
+        // (tag phụ ngẫu nhiên gây nhiễu khi user filter theo category)
         var trendTags = new List<TrendTag>();
-        var allTagIds = tags.Select(t => t.Id).ToList();
         for (int i = 0; i < trendList.Count; i++)
         {
             var (_, _, primarySlug, _) = trendData[i];
             var primaryTag = tagBySlug.GetValueOrDefault(primarySlug);
             if (primaryTag != null)
                 trendTags.Add(new TrendTag { TrendId = trendList[i].Id, TagId = primaryTag.Id });
-
-            // Thêm 1-2 tag phụ ngẫu nhiên
-            var extras = allTagIds.Where(id => id != primaryTag?.Id)
-                                  .OrderBy(_ => rng.Next()).Take(rng.Next(1, 3));
-            foreach (var tagId in extras)
-                trendTags.Add(new TrendTag { TrendId = trendList[i].Id, TagId = tagId });
         }
         _db.TrendTags.AddRange(trendTags);
         await _db.SaveChangesAsync(ct);

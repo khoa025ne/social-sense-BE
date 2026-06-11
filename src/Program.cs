@@ -256,7 +256,13 @@ app.MapPost("/admin/seed", async (SeedDataService seeder, CancellationToken ct) 
     return Results.Ok(new { message = "Seed completed." });
 }).RequireAuthorization("AdminOnly");
 
-// POST /admin/trends/bulk — Admin only, thêm nhiều trend mới vào DB
+// POST /admin/seed/trend-tags — Xoá và seed lại TrendTags (không đụng data khác)
+app.MapPost("/admin/seed/trend-tags", async (SeedDataService seeder, CancellationToken ct) =>
+{
+    await seeder.ReseedTrendTagsAsync(ct);
+    return Results.Ok(new { message = "TrendTags re-seeded successfully." });
+}).RequireAuthorization("AdminOnly");
+
 app.MapPost("/admin/trends/bulk", async (
     BulkTrendRequest req,
     AppDbContext db,
