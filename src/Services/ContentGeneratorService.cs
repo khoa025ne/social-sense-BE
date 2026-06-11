@@ -357,91 +357,64 @@ public class ContentGeneratorService : IContentGeneratorService
                 $"[K{i + 1}] {k.Title}: {(k.RawContent?.Length > _options.MaxKnowledgeContentLength ? k.RawContent[.._options.MaxKnowledgeContentLength] + "..." : k.RawContent)}"))
             : "No internal knowledge available.";
 
+        // Xác định topic chính: ưu tiên UserInstruction, fallback về JobTitle/ngành
+        var topicHint = !string.IsNullOrWhiteSpace(userInstruction)
+            ? $"User's requested topic: {userInstruction.Trim()}"
+            : $"Infer topic from Job Title: {persona.JobTitle}";
+
         var userInstructionSection = !string.IsNullOrWhiteSpace(userInstruction)
-            ? $"\n⚡ USER INSTRUCTION (HIGHEST PRIORITY):\n{userInstruction.Trim()}\n"
+            ? $"\n⚡ USER INSTRUCTION (THIS DEFINES THE CONTENT TOPIC — highest priority):\n{userInstruction.Trim()}\nWrite content specifically about this topic. Do NOT redirect to a different industry.\n"
             : string.Empty;
 
-        return $@"You are the world's most elite psychological copywriter and sales strategist.
-Your job: read the Brand Persona deeply, infer the industry/product/service being sold, identify the customer's deepest pain points and desires, then craft content that hits them psychologically.
+        return $@"You are an expert social media copywriter. Create engaging content for the specified topic, written in the brand's voice.
 Return ONLY a raw JSON array — no markdown, no explanation.
 {userInstructionSection}
 
-═══ PHASE 1 — PERSONA ANALYSIS (internal reasoning, do NOT output) ═══
-From the Brand Persona below, infer:
-- What industry/niche is this person in? (real estate, fashion, finance, food, etc.)
-- What specific product or service are they selling?
-- What is the #1 fear of their target audience? (losing money, missing opportunity, being left behind...)
-- What is the #1 desire of their target audience? (wealth, status, security, belonging...)
-- What psychological trigger works best for this niche?
+CONTENT TOPIC (what to write about):
+{topicHint}
+The content MUST stay on this topic. Do not substitute it with a different industry or subject.
 
-═══ PHASE 2 — PSYCHOLOGICAL PLAYBOOK (apply the right formula per niche) ═══
-Select and apply the most powerful triggers for this specific industry:
-
-🏠 Real Estate / Land:
-  - FOMO + Scarcity: ""Chỉ còn X lô cuối"", ""Giá tăng X% sau Tết"", ""Quy hoạch mới vừa được duyệt""
-  - Future Pacing: ""5 năm nữa mảnh đất này trị giá gấp 3"", ""Con bạn sẽ cảm ơn bạn vì quyết định hôm nay""
-  - Loss Aversion: ""Người mua năm 2020 đã lãi 200% — bạn có muốn bỏ lỡ lần này không?""
-  - Authority: ""Chuyên gia 10 năm kinh nghiệm khuyên: đây là thời điểm vàng""
-  - Micro-commitment: ""Chỉ 100 triệu để giữ chỗ — đừng để người khác mua trước""
-
-💰 Finance / Investment:
-  - Social Proof: ""Hơn 500 nhà đầu tư đã chốt lời tháng này""
-  - Urgency: ""Lãi suất ưu đãi chỉ còn hiệu lực đến cuối tháng""
-  - Identity: ""Người thông minh không để tiền chết trong ngân hàng""
-
-👗 Fashion / Lifestyle:
-  - Status & Exclusivity: ""Chỉ 50 chiếc — dành cho người biết mình xứng đáng""
-  - Transformation: ""Mặc vào là khác — tự tin ngay từ cái nhìn đầu tiên""
-
-🍜 Food & Beverage:
-  - Sensory: ""Hương vị khiến bạn quên mọi lo toan""
-  - Community: ""Hàng nghìn khách hàng quay lại mỗi tuần — bạn đã thử chưa?""
-
-📚 Education / Coaching:
-  - Pain Agitation: ""Bạn đang làm việc chăm chỉ nhưng thu nhập vẫn giậm chân tại chỗ?""
-  - Transformation Promise: ""3 tháng thay đổi tư duy — cả đời thay đổi thu nhập""
-
-(Apply the formula that matches the inferred industry. If industry is unclear, use the most universal triggers.)
-
-═══ PHASE 3 — CONTENT GENERATION ═══
-Generate exactly {outputCount} content item(s). Each item must:
-- Open with a SCROLL-STOPPING hook (first 2 lines must make them stop scrolling)
-- Use the psychological trigger most relevant to this persona's industry
-- Speak directly to the target audience's #1 fear OR #1 desire
-- Feel like it was written by a human expert in that field, NOT a generic AI
-- Match the tone, language, and style of the Brand Persona exactly
-
-Brand Persona:
-- Job Title: {persona.JobTitle}
-- Tone of Voice: {persona.ToneOfVoice}
+BRAND VOICE (how to write — tone and style only):
+Use the Brand Persona below to shape writing style, vocabulary, and audience targeting.
+The persona defines HOW you write, not WHAT you write about.
+- Job Title: {persona.JobTitle} — understand the writer's perspective
+- Tone of Voice: {persona.ToneOfVoice} — match this writing style exactly
 - Language: {persona.Language}
-- Target Audience: {audienceStr}
+- Target Audience: {audienceStr} — write for these readers
 - Preferred Formats: {formatsStr}
-- Negative Constraints (NEVER do these): {negativesStr}
+- Negative Constraints (avoid in style): {negativesStr}
 
-Internal Knowledge Base (product info, brand facts — weave naturally into content):
+PSYCHOLOGICAL TRIGGERS (apply based on the TOPIC above, not the job title):
+- Insight Hook: surprising or counterintuitive fact about the topic
+- FOMO / Urgency: time-sensitive angle relevant to the topic
+- Social Proof: reference scale, adoption, or community around the topic
+- Solution Frame: position the reader as someone who can benefit from this topic
+
+Internal Knowledge Base (use ONLY if directly relevant to the content topic):
 {knowledgeSection}
 
 Target Platforms: [{platformListStr}] — one platform per item, vary platforms if multiple items.
+
+Generate exactly {outputCount} content item(s).
 
 Return ONLY this raw JSON array (no ```json wrapper, no object wrapper):
 [
   {{
     ""platform"": ""platform name"",
-    ""hook"": ""scroll-stopping first line that triggers immediate emotion"",
-    ""body"": ""psychologically crafted body under {_options.MaxBodyLength} chars — hits pain point then presents solution"",
-    ""cta"": ""urgent, specific call to action with micro-commitment or deadline"",
+    ""hook"": ""scroll-stopping first line about the content topic"",
+    ""body"": ""engaging body content about the topic, under {_options.MaxBodyLength} chars"",
+    ""cta"": ""clear call to action relevant to the topic"",
     ""hashtags"": [""tag1"", ""tag2""],
-    ""bannerImagePrompt"": ""detailed English image prompt evoking the emotion of the content"",
-    ""bestTimeToPost"": ""Vietnamese recommendation with psychological reasoning (when is audience most receptive?)""
+    ""bannerImagePrompt"": ""detailed English image prompt representing the content topic"",
+    ""bestTimeToPost"": ""Vietnamese recommendation with reasoning""
   }}
 ]
 
-CRITICAL RULES — MUST FOLLOW:
-- Start your response with [ and end with ] — nothing before or after
+RULES:
+- Start response with [ and end with ] — nothing before or after
 - body must be under {_options.MaxBodyLength} characters
 - max {_options.MaxHashtags} hashtags per item
-- NEVER write generic content — every word must feel tailored to this specific persona and audience
+- Content topic MUST match the user instruction or job title context — never redirect to unrelated industry
 - NO explanation, NO preamble, NO markdown — ONLY the JSON array";
     }
 
