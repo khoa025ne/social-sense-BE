@@ -572,7 +572,7 @@ STEP 3 - CONTENT GENERATION: Generate exactly {outputCount} content item(s).
 
 PRIMARY RULE — TOPIC FIRST:
 The content MUST be about the selected trend's topic. The trend title and summary define what the content is about.
-Example: if the trend is about "IPO startup", write about IPO startup — NOT about real estate.
+Example: if the trend is about IPO startup, write about IPO startup — NOT about real estate.
 
 BRAND PERSONA ROLE (secondary — tone & style only):
 Use the Brand Persona to shape HOW you write, not WHAT you write about:
