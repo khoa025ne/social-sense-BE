@@ -560,49 +560,61 @@ Set ""smartMatchReason"" to a professional Vietnamese explanation of why this tr
 This instruction takes precedence over general persona defaults. Follow it precisely."
             : string.Empty;
 
-        return $@"You are the world's most powerful AI copywriter, brand strategist, and RAG expert combined.
-Complete ALL of the following steps in a SINGLE response. Return ONLY a raw JSON object — no markdown, no explanation.
+        return $@"You are an expert social media copywriter. Your task is to create engaging content about the selected trend, adapted to the brand's communication style.
+Complete ALL steps in a SINGLE response. Return ONLY a raw JSON object — no markdown, no explanation.
 {userInstructionSection}
 
 {trendSelectionInstruction}
 
-STEP 2 - KNOWLEDGE INTEGRATION: From the Internal Knowledge Base below, identify the most relevant facts, brand values, or product details that match the selected trend and persona. Weave them naturally into the content.
+STEP 2 - KNOWLEDGE INTEGRATION: From the Internal Knowledge Base below, find any facts that are DIRECTLY relevant to the selected trend's topic. Only use knowledge that genuinely relates to the trend — do NOT force unrelated knowledge into the content.
 
-STEP 3 - CONTENT GENERATION: Generate exactly {outputCount} content item(s) using master-class psychological copywriting triggers:
-- FOMO / Scarcity: Limited slots, rising prices, last batch
-- Status & Self-Worth: Make buyer feel elite, smart, valued
-- Pain Point Agitation: Expose weakness, present product as the ONLY cure
-- Emotional Ownership: Talk as if they already own it
-- Strict Context Binding: NEVER write off-brand content. Match the Job Title and audience exactly.
+STEP 3 - CONTENT GENERATION: Generate exactly {outputCount} content item(s).
 
-Brand Persona:
+PRIMARY RULE — TOPIC FIRST:
+The content MUST be about the selected trend's topic. The trend title and summary define what the content is about.
+Example: if the trend is about "IPO startup", write about IPO startup — NOT about real estate.
+
+BRAND PERSONA ROLE (secondary — tone & style only):
+Use the Brand Persona to shape HOW you write, not WHAT you write about:
+- Tone of Voice → writing style, vocabulary, formality level
+- Target Audience → who the reader is (adjust language accordingly)
+- Negative Constraints → things to avoid in writing style
+- Job Title → helps understand the reader's perspective, but does NOT change the topic
+
+PSYCHOLOGICAL TRIGGERS (apply based on the TREND's topic, not the persona's industry):
+- FOMO / Urgency: time-sensitive angles from the trend
+- Social Proof: reference the trend's scale/impact (numbers, names)
+- Insight Hook: surprising facts from the trend that make people stop scrolling
+- Solution Frame: position the reader as someone who can act on this trend
+
+Brand Persona (for tone & style adaptation only):
 - Job Title: {persona.JobTitle}
 - Tone of Voice: {persona.ToneOfVoice}
 - Language: {persona.Language}
 - Target Audience: {audienceStr}
 - Preferred Formats: {formatsStr}
-- Negative Constraints (AVOID these): {negativesStr}
+- Negative Constraints (AVOID these in writing style): {negativesStr}
 
 {trendSection}
 
-Internal Knowledge Base (use relevant items to enrich content):
+Internal Knowledge Base (use ONLY if directly relevant to the trend topic):
 {knowledgeSection}
 
 Target Platforms: [{platformListStr}] — assign one platform per item, cover different platforms if multiple items.
 
 Return ONLY this raw JSON object (no ```json wrapper):
 {{
-  ""selectedTrendId"": ""<guid of selected trend>"",
-  ""smartMatchReason"": ""<Vietnamese explanation>"",
+  ""selectedTrendId"": ""<id of selected trend>"",
+  ""smartMatchReason"": ""<Vietnamese explanation of why this trend is interesting for the audience>"",
   ""items"": [
     {{
       ""platform"": ""platform name"",
-      ""hook"": ""scroll-stopping psychological hook"",
-      ""body"": ""core content under {_options.MaxBodyLength} chars"",
-      ""cta"": ""compelling call to action"",
+      ""hook"": ""scroll-stopping first line about the trend topic"",
+      ""body"": ""engaging body content about the trend, under {_options.MaxBodyLength} chars"",
+      ""cta"": ""clear call to action relevant to the trend"",
       ""hashtags"": [""tag1"", ""tag2""],
-      ""bannerImagePrompt"": ""detailed English image prompt for DALL-E/Midjourney"",
-      ""bestTimeToPost"": ""Vietnamese recommendation with justification""
+      ""bannerImagePrompt"": ""detailed English image prompt representing the trend topic"",
+      ""bestTimeToPost"": ""Vietnamese recommendation with reasoning""
     }}
   ]
 }}
@@ -610,6 +622,7 @@ Return ONLY this raw JSON object (no ```json wrapper):
 Rules:
 - body must be under {_options.MaxBodyLength} characters
 - max {_options.MaxHashtags} hashtags per item
+- Content topic MUST match the trend — never redirect to an unrelated industry
 - Return ONLY the raw JSON, no markdown code blocks";
     }
 
