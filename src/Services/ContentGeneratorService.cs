@@ -271,26 +271,39 @@ public class ContentGeneratorService : IContentGeneratorService
                     {
                         var parsed = JsonSerializer.Deserialize<List<GeneratedContentItem>>(cleaned,
                             new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                        if (parsed != null)
+                        if (parsed != null && parsed.Count > 0)
                             items = parsed.Select(i => SanitizeContentItem(i, persona.Language)).Take(outputCount).ToList();
                     }
                     catch (JsonException)
                     {
-                        // Thử parse dạng object có field "items" (fallback)
+                        // Fallback 1: Thử parse dạng single object
                         try
                         {
-                            var wrapper = JsonSerializer.Deserialize<UnifiedGenerateResult>(cleaned,
+                            var single = JsonSerializer.Deserialize<GeneratedContentItem>(cleaned,
                                 new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                            if (wrapper?.Items != null)
+                            if (single != null && !string.IsNullOrWhiteSpace(single.Body))
                             {
-                                items = wrapper.Items.Select(i => SanitizeContentItem(i, persona.Language)).Take(outputCount).ToList();
-                                if (!string.IsNullOrWhiteSpace(wrapper.SmartMatchReason))
-                                    smartMatchReason = wrapper.SmartMatchReason;
+                                items.Add(SanitizeContentItem(single, persona.Language));
                             }
                         }
-                        catch (JsonException ex2)
+                        catch (JsonException)
                         {
-                            _logger.LogError(ex2, "PersonaDriven: failed to parse response. Raw text: {Raw}", text);
+                            // Fallback 2: Thử parse dạng object có field "items"
+                            try
+                            {
+                                var wrapper = JsonSerializer.Deserialize<UnifiedGenerateResult>(cleaned,
+                                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                                if (wrapper?.Items != null)
+                                {
+                                    items = wrapper.Items.Select(i => SanitizeContentItem(i, persona.Language)).Take(outputCount).ToList();
+                                    if (!string.IsNullOrWhiteSpace(wrapper.SmartMatchReason))
+                                        smartMatchReason = wrapper.SmartMatchReason;
+                                }
+                            }
+                            catch (JsonException ex2)
+                            {
+                                _logger.LogError(ex2, "PersonaDriven: failed to parse response. Raw text: {Raw}", text);
+                            }
                         }
                     }
                 }
@@ -413,7 +426,7 @@ Return ONLY this raw JSON array (no ```json wrapper, no object wrapper):
     ""body"": ""engaging body content about the topic, under {_options.MaxBodyLength} chars"",
     ""cta"": ""clear call to action relevant to the topic"",
     ""hashtags"": [""tag1"", ""tag2""],
-    ""bannerImagePrompt"": ""detailed English image prompt representing the content topic"",
+    ""bannerImagePrompt"": ""vivid English image prompt depicting the SPECIFIC central subject, visual scene, and mood directly from this hook/body (for Flux generator, no buzzwords like 8K)"",
     ""bestTimeToPost"": ""Vietnamese recommendation with reasoning""
   }}
 ]
@@ -470,10 +483,10 @@ RULES:
     {
         return provider?.ToLowerInvariant() switch
         {
-            "groq"   => "https://api.groq.com/openai/v1",
-            "openai" => "https://api.openai.com/v1",
-            // Chỉ dùng Groq cho text generation — loại bỏ OpenRouter/HuggingFace
-            _        => "https://api.groq.com/openai/v1"
+            "groq"       => "https://api.groq.com/openai/v1",
+            "openai"     => "https://api.openai.com/v1",
+            "openrouter" => "https://openrouter.ai/api/v1",
+            _            => "https://api.groq.com/openai/v1"
         };
     }
 
@@ -594,7 +607,7 @@ Return ONLY this raw JSON object (no ```json wrapper):
       ""body"": ""engaging body content about the trend, under {_options.MaxBodyLength} chars"",
       ""cta"": ""clear call to action relevant to the trend"",
       ""hashtags"": [""tag1"", ""tag2""],
-      ""bannerImagePrompt"": ""detailed English image prompt representing the trend topic"",
+      ""bannerImagePrompt"": ""vivid English image prompt depicting the SPECIFIC central subject, visual scene, and mood directly from this hook/body (for Flux generator, no buzzwords like 8K)"",
       ""bestTimeToPost"": ""Vietnamese recommendation with reasoning""
     }}
   ]

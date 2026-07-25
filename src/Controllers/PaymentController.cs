@@ -153,9 +153,13 @@ public class PaymentController : ControllerBase
         var description = $"SS{tier.ToString().ToUpper()[..2]}{userId}";
         if (description.Length > 25) description = description[..25];
 
+        // Lấy ReturnUrl và CancelUrl động từ request nếu có, ngược lại fallback về config mặc định
+        var cancelUrl = !string.IsNullOrEmpty(request.CancelUrl) ? request.CancelUrl : _options.CancelUrl;
+        var returnUrl = !string.IsNullOrEmpty(request.ReturnUrl) ? request.ReturnUrl : _options.ReturnUrl;
+
         // Tạo signature cho request
         var signature = _payOs.BuildSignatureForCreate(
-            orderCode, amount, description, _options.CancelUrl, _options.ReturnUrl);
+            orderCode, amount, description, cancelUrl, returnUrl);
 
         var expiredAt = DateTimeOffset.UtcNow.AddSeconds(_options.ExpiredAfterSeconds).ToUnixTimeSeconds();
 
@@ -175,8 +179,8 @@ public class PaymentController : ControllerBase
                     Price    = amount
                 }
             },
-            CancelUrl  = _options.CancelUrl,
-            ReturnUrl  = _options.ReturnUrl,
+            CancelUrl  = cancelUrl,
+            ReturnUrl  = returnUrl,
             ExpiredAt  = expiredAt,
             Signature  = signature
         };

@@ -21,7 +21,7 @@ public class UserContext
     [MaxLength(120)]
     public string? JobTitle { get; set; }
 
-    [MaxLength(60)]
+    [MaxLength(255)]
     public string? ToneOfVoice { get; set; }
 
     public string? PlatformPreferencesJson { get; set; }

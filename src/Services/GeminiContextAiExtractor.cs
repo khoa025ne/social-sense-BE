@@ -97,17 +97,21 @@ public class GeminiContextAiExtractor : IContextAiExtractor
 
     private static string GetBaseUrl(string provider) => provider?.ToLowerInvariant() switch
     {
-        "groq"  => "https://api.groq.com/openai/v1",
-        "openai" => "https://api.openai.com/v1",
-        // Không hỗ trợ OpenRouter cho context extraction — chỉ dùng Groq
-        _ => "https://api.groq.com/openai/v1"
+        "groq"       => "https://api.groq.com/openai/v1",
+        "openai"     => "https://api.openai.com/v1",
+        "openrouter" => "https://openrouter.ai/api/v1",
+        _            => "https://api.groq.com/openai/v1"
     };
 
     private static string BuildPrompt(List<string> answers, string language)
     {
         var joined = string.Join("\n", answers.Select(a => $"- {a}"));
-        return $@"You are an onboarding analyzer. Return STRICT JSON only.
-Schema: {{
+        return $@"You are an onboarding analyzer for a content-creation AI. Your job is to read a user's raw onboarding answers and extract a structured profile that captures their ACTUAL voice and context — not generic marketing labels.
+
+Return STRICT JSON only. No preamble, no markdown, no explanation outside the JSON.
+
+Schema:
+{{
   ""jobTitle"": ""string"",
   ""toneOfVoice"": ""string"",
   ""platformPreferences"": [""string"", ...],
@@ -115,10 +119,22 @@ Schema: {{
   ""contentFormats"": [""string"", ...],
   ""negativeConstraints"": [""string"", ...]
 }}
-Rules: 
-- language={language}
+
+Language: {language}
+
+Extraction principles:
+- toneOfVoice: Describe the tone the way a colleague would describe this person's writing style to a new teammate — specific and textured (e.g. ""warm and a little cheeky, avoids corporate jargon"" instead of just ""Friendly""). Draw the description FROM the user's actual words and phrasing in their answers, not from a fixed list of tone adjectives.
+- targetAudience: Use the user's own language/terms for their audience where possible, rather than converting to generic marketing personas.
+- Prefer specific, concrete phrases over abstract category words. If the user gives an example or a detail, keep that detail rather than summarizing it away.
+- Do not smooth out quirks, informality, or specificity in the user's answers — that specificity is what makes the profile usable for personalization.
+- CRITICAL: All extracted text values in JSON MUST be written in language={language}.
+
+Array rules:
 - platformPreferences, targetAudience, contentFormats, negativeConstraints: max 6 items each, short strings only.
-- If answers are too short or lack information, output an empty array [] for that field. Do NOT invent data.
+
+Guardrail:
+- If an answer is too short, vague, or missing, output an empty array [] (or """" for string fields) for that field. Never invent, infer beyond what's stated, or fall back to generic defaults.
+
 Answers:
 {joined}";
     }
@@ -133,6 +149,12 @@ Answers:
             });
 
             if (parsed == null) return null;
+
+            if (!string.IsNullOrWhiteSpace(parsed.JobTitle) && parsed.JobTitle.Length > 60)
+                parsed.JobTitle = parsed.JobTitle[..60].Trim();
+
+            if (!string.IsNullOrWhiteSpace(parsed.ToneOfVoice) && parsed.ToneOfVoice.Length > 60)
+                parsed.ToneOfVoice = parsed.ToneOfVoice[..60].Trim();
 
             parsed.PlatformPreferences = parsed.PlatformPreferences
                 ?.Where(t => !string.IsNullOrWhiteSpace(t)).Select(t => t.Trim())

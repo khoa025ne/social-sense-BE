@@ -136,7 +136,7 @@ public class ImageGenerationService : IImageGenerationService
     private static string BuildAnalyzePrompt(string content, string platform, BannerSpecs specs)
     {
         return $@"You are an expert visual marketing strategist and banner designer.
-Analyze the following social media content and return a JSON object for banner creation planning.
+Analyze the following social media content to create a high-precision image generation prompt that PERFECTLY MATCHES the specific context, central subject, and mood of the text.
 Return ONLY raw JSON — no markdown, no explanation.
 
 Content to analyze:
@@ -146,22 +146,30 @@ Target Platform: {platform} ({specs.Dimensions}, {specs.AspectRatio})
 
 Detect the industry from the content (real_estate, fashion, food, tech, finance, education, beauty, travel, fitness, other).
 
+Extraction & Image Prompt Rules:
+1. Identify the MAIN SUBJECT / FOCAL OBJECT mentioned or implied in the content (e.g. if text is about iced coconut coffee, subject MUST be iced coconut coffee, not a generic coffee cup).
+2. Extract the MOOD & ATMOSPHERE from the text (e.g. cozy morning, energetic hustle, premium luxury).
+3. Draft an English image prompt (draftPrompt) following Flux model best practices:
+   - Form: [Specific Central Subject extracted from text] + [Detailed Environment & Background] + [Lighting & Color Mood] + [Composition with negative space for banner text].
+   - Avoid empty buzzwords like '8K', 'photorealistic', 'hyperdetailed'.
+   - Describe a real, vivid visual scene that tells the story of the content.
+
 Return this exact JSON structure:
 {{
-  ""imageSummary"": ""2-3 sentence Vietnamese description of the ideal banner visual"",
-  ""draftPrompt"": ""English image generation prompt using: [Subject] + [Style] + [Lighting] + [Color Palette] + [Platform specs]"",
+  ""imageSummary"": ""2-3 sentence Vietnamese description explaining how this visual directly reflects the content's story and central subject"",
+  ""draftPrompt"": ""vivid English Flux image prompt capturing the exact subject, environment, lighting, and composition from the content"",
   ""detectedIndustry"": ""industry_key"",
   ""clarifyingQuestions"": [
     {{
       ""id"": ""q1"",
-      ""question"": ""Vietnamese question about product/subject image"",
+      ""question"": ""Bạn có muốn thêm ảnh chụp sản phẩm/chủ thể thực tế của thương hiệu không?"",
       ""type"": ""yesno""
     }},
     {{
       ""id"": ""q2"",
-      ""question"": ""Vietnamese question about color tone"",
+      ""question"": ""Tông màu & phong cách thị giác chủ đạo bạn mong muốn?"",
       ""type"": ""choice"",
-      ""options"": [""Tối & sang trọng"", ""Sáng & năng động"", ""Tự nhiên & ấm áp""]
+      ""options"": [""Tối & sang trọng"", ""Sáng & năng động"", ""Tự nhiên & ấm áp"", ""Hiện đại & Hi-Tech""]
     }},
     {{
       ""id"": ""q3"",
@@ -173,7 +181,7 @@ Return this exact JSON structure:
 
 Rules:
 - imageSummary must be in Vietnamese
-- draftPrompt must be in English, professional image generation style
+- draftPrompt must be in English, descriptive visual scene style
 - clarifyingQuestions[0] must ask about adding real product/subject photo
 - Tailor questions to the detected industry
 - Return ONLY the JSON object, nothing else";
@@ -271,23 +279,21 @@ Rules:
     private async Task<string?> RefinePromptWithAiAsync(
         string rawPrompt, string industry, string platform, CancellationToken ct)
     {
-        var refinePrompt = $@"You are a professional image prompt engineer specializing in social media banners.
-Refine and enhance this image generation prompt for maximum visual impact on {platform}.
+        var refinePrompt = $@"You are a professional image prompt engineer specializing in FLUX model social media banners.
+Refine and enhance this image generation prompt to make it 100% ACCURATE to the content context and visually stunning on {platform}.
 Return ONLY the refined prompt string — no JSON, no explanation, no quotes.
 
 Industry: {industry}
 Raw prompt: {rawPrompt}
 
 Enhancement rules:
-- Apply rule of thirds composition
-- Ensure high contrast between subject and background
-- Add specific lighting direction (front-lit, rim-lit, dramatic side lighting)
-- Include depth of field specification
-- Add color grading style (cinematic, commercial, editorial)
-- Keep under 200 words
-- Output in English only
+- FOCUS ON THE CORE SUBJECT: The image MUST clearly depict the exact subject/concept from the raw prompt.
+- Use descriptive visual photography language (e.g. 'close-up shot of...', 'soft morning sunlight filtering through...', 'blurred background').
+- Apply rule of thirds composition, keep main subject clear on one side, leaving clean negative space for potential text overlays.
+- DO NOT use generic filler words like '8K', 'photorealistic', 'trending on artstation', 'masterpiece'.
+- Keep under 150 words.
+- Output in English only.
 - CRITICAL: Do NOT include any Vietnamese text, color names in Vietnamese, or UI option labels in the prompt
-- CRITICAL: Do NOT add any text overlay instructions unless the raw prompt already contains a specific caption to display
 - CRITICAL: Remove any phrases like 'text overlay: ...' that contain Vietnamese words or option labels";
 
         try
@@ -768,12 +774,12 @@ Enhancement rules:
     private HttpRequestMessage BuildHttpRequest(
         string prompt, GeminiApiKeyPool.KeySlot slot, double temperature, int maxTokens)
     {
-        // Chỉ dùng Groq cho text tasks (analyze, refine prompt)
         var baseUrl = slot.Provider?.ToLowerInvariant() switch
         {
-            "groq"   => "https://api.groq.com/openai/v1",
-            "openai" => "https://api.openai.com/v1",
-            _        => "https://api.groq.com/openai/v1"
+            "groq"       => "https://api.groq.com/openai/v1",
+            "openai"     => "https://api.openai.com/v1",
+            "openrouter" => "https://openrouter.ai/api/v1",
+            _            => "https://api.groq.com/openai/v1"
         };
         var model = slot.ModelOverride ?? "meta-llama/llama-4-scout-17b-16e-instruct";
 
@@ -790,6 +796,11 @@ Enhancement rules:
             Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
         };
         msg.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", slot.Key);
+        if (slot.Provider == "openrouter")
+        {
+            msg.Headers.TryAddWithoutValidation("HTTP-Referer", "https://socialsense.app");
+            msg.Headers.TryAddWithoutValidation("X-Title", "SocialSense");
+        }
         return msg;
     }
 

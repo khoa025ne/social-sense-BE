@@ -10,6 +10,12 @@ public class CreatePaymentRequest
     /// <summary>Gói muốn mua: "Pro" hoặc "Enterprise"</summary>
     [Required]
     public string Tier { get; set; } = "Pro";
+
+    /// <summary>URL chuyển hướng thành công tùy chọn (dành cho Web)</summary>
+    public string? ReturnUrl { get; set; }
+
+    /// <summary>URL chuyển hướng hủy tùy chọn (dành cho Web)</summary>
+    public string? CancelUrl { get; set; }
 }
 
 // ── Response ──────────────────────────────────────────────────────────────────
