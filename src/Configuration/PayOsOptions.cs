@@ -34,6 +34,6 @@ public class PayOsOptions
     public int ExpiredAfterSeconds { get; set; } = 900;
 
     // ── Giá gói (VND) ────────────────────────────────────────────────────────
-    public int ProMonthlyPrice { get; set; } = 50000;
-    public int EnterpriseMonthlyPrice { get; set; } = 79000;
+    public int ProMonthlyPrice { get; set; } = 79000;
+    public int EnterpriseMonthlyPrice { get; set; } = 99000;
 }

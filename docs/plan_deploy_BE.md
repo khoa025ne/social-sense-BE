@@ -228,8 +228,8 @@ Vào Render → Web Service → **Environment** → thêm từng biến:
 | `PayOs__CancelUrl` | `https://socialsense-be.onrender.com/payment/cancel` |
 | `PayOs__BaseUrl` | `https://api-merchant.payos.vn` |
 | `PayOs__ExpiredAfterSeconds` | `900` |
-| `PayOs__ProMonthlyPrice` | `50000` |
-| `PayOs__EnterpriseMonthlyPrice` | `79000` |
+| `PayOs__ProMonthlyPrice` | `79000` |
+| `PayOs__EnterpriseMonthlyPrice` | `99000` |
 
 ### 5.4 AI Keys (nếu muốn seed từ config thay vì DB)
 
