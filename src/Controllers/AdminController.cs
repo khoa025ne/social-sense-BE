@@ -51,7 +51,12 @@ public class AdminController : ControllerBase
         var activeKeys = keyStatuses.Count(k => !k.IsInCooldown);
         var coolingKeys = keyStatuses.Count(k => k.IsInCooldown);
 
-        // Thống kê 7 ngày gần nhất
+        // Thống kê 7 ngày gần nhất từ DB thật
+        var activitiesList = await _db.UserActivities
+            .Where(a => a.CreatedAt >= sevenDaysAgo)
+            .Select(a => new { Date = a.CreatedAt.Date, a.ActionType, a.ActionLabel, a.Detail })
+            .ToListAsync(ct);
+
         var contentByDay = await _db.ContentHistories
             .Where(c => c.CreatedAt >= sevenDaysAgo)
             .GroupBy(c => c.CreatedAt.Date)
@@ -66,11 +71,32 @@ public class AdminController : ControllerBase
 
         var last7Days = Enumerable.Range(0, 7)
             .Select(i => now.AddDays(-6 + i).Date)
-            .Select(date => new DailyStatPoint
+            .Select(date =>
             {
-                Date = date.ToString("yyyy-MM-dd"),
-                ContentGenerated = contentByDay.FirstOrDefault(x => x.Date == date)?.Count ?? 0,
-                NewUsers = usersByDay.FirstOrDefault(x => x.Date == date)?.Count ?? 0
+                var promptCount = activitiesList.Count(x => x.Date == date && x.ActionType == "CREATE_PROMPT")
+                    + (contentByDay.FirstOrDefault(x => x.Date == date)?.Count ?? 0);
+                var imgCount = activitiesList.Count(x => x.Date == date && x.ActionType == "IMAGE_GEN");
+                var knowCount = activitiesList.Count(x => x.Date == date && x.ActionType == "UPLOAD_KNOWLEDGE");
+                var loginCount = activitiesList.Count(x => x.Date == date && x.ActionType == "LOGIN");
+                var newUsers = usersByDay.FirstOrDefault(x => x.Date == date)?.Count ?? 0;
+                var payCount = activitiesList.Count(x => x.Date == date && x.ActionType == "PAYMENT");
+                var proUpgrades = activitiesList.Count(x => x.Date == date && x.ActionType == "PAYMENT" && (x.Detail.Contains("Pro") || x.ActionLabel.Contains("Pro")));
+                var ultraUpgrades = activitiesList.Count(x => x.Date == date && x.ActionType == "PAYMENT" && (x.Detail.Contains("Ultra") || x.ActionLabel.Contains("Ultra")));
+                var rev = (long)proUpgrades * 79000 + (long)ultraUpgrades * 99000;
+
+                return new DailyStatPoint
+                {
+                    Date = date.ToString("yyyy-MM-dd"),
+                    ContentGenerated = promptCount,
+                    NewUsers = newUsers,
+                    ImageGenerated = imgCount,
+                    KnowledgeUploaded = knowCount,
+                    UserLogins = loginCount,
+                    PaymentsCount = payCount,
+                    ProUpgrades = proUpgrades,
+                    UltraUpgrades = ultraUpgrades,
+                    Revenue = rev
+                };
             })
             .ToList();
 

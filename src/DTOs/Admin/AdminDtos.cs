@@ -181,6 +181,13 @@ public class DailyStatPoint
     public string Date { get; set; } = string.Empty;
     public int ContentGenerated { get; set; }
     public int NewUsers { get; set; }
+    public int ImageGenerated { get; set; }
+    public int KnowledgeUploaded { get; set; }
+    public int UserLogins { get; set; }
+    public int PaymentsCount { get; set; }
+    public int ProUpgrades { get; set; }
+    public int UltraUpgrades { get; set; }
+    public long Revenue { get; set; }
 }
 
 // ── Tier Management ───────────────────────────────────────────────────────────

@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/apps/web/dist/index.html"
+    }
+  ]
+}
