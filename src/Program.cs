@@ -94,6 +94,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddSingleton<ApiKeyEncryptionService>();
 builder.Services.AddSingleton<GeminiApiKeyPool>();
 builder.Services.AddScoped<SeedDataService>();
+builder.Services.AddScoped<IActivityLogger, ActivityLogger>();
 builder.Services.AddScoped<IContextService, ContextService>();
 builder.Services.AddSingleton<IContextAiExtractor, GeminiContextAiExtractor>();
 
@@ -205,7 +206,23 @@ using (var scope = app.Services.CreateScope())
         // Tự động tạo DB và chạy migration nếu chưa có
         logger.LogInformation("🔄 Applying database migrations...");
         await db.Database.MigrateAsync();
-        logger.LogInformation("✅ Database migrations applied.");
+
+        // Đảm bảo bảng UserActivities tồn tại trong MySQL DB
+        await db.Database.ExecuteSqlRawAsync(@"
+            CREATE TABLE IF NOT EXISTS `UserActivities` (
+                `Id` INT NOT NULL AUTO_INCREMENT,
+                `UserId` INT NOT NULL,
+                `ActionType` VARCHAR(255) NOT NULL,
+                `ActionLabel` VARCHAR(4000) NOT NULL,
+                `Detail` VARCHAR(4000) NOT NULL,
+                `CreatedAt` DATETIME(6) NOT NULL,
+                PRIMARY KEY (`Id`),
+                KEY `IX_UserActivities_UserId` (`UserId`),
+                KEY `IX_UserActivities_CreatedAt` (`CreatedAt`),
+                KEY `IX_UserActivities_ActionType` (`ActionType`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ");
+        logger.LogInformation("✅ Database migrations & UserActivities table applied.");
 
         // Seed dữ liệu mẫu nếu DB trống
         await seeder.SeedAsync();

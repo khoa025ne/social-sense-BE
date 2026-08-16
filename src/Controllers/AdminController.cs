@@ -864,6 +864,92 @@ public class AdminController : ControllerBase
         });
     }
 
+    /// <summary>
+    /// GET /admin/activities/drilldown?date=2026-08-16
+    /// Trả về nhật ký hành động thực sự từ DB cho mốc thời gian/ngày được chọn
+    /// </summary>
+    [HttpGet("activities/drilldown")]
+    public async Task<IActionResult> GetActivityDrilldown([FromQuery] string? date = null, CancellationToken ct = default)
+    {
+        DateTime targetDate = DateTime.UtcNow.Date;
+        if (!string.IsNullOrWhiteSpace(date) && DateTime.TryParse(date, out var parsed))
+        {
+            targetDate = parsed.Date;
+        }
+
+        var nextDay = targetDate.AddDays(1);
+
+        var activities = await _db.UserActivities
+            .AsNoTracking()
+            .Where(a => a.CreatedAt >= targetDate && a.CreatedAt < nextDay)
+            .OrderByDescending(a => a.CreatedAt)
+            .Take(100)
+            .ToListAsync(ct);
+
+        var userIds = activities.Select(a => a.UserId).Distinct().ToList();
+        var users = await _db.Users
+            .AsNoTracking()
+            .Where(u => userIds.Contains(u.Id))
+            .ToDictionaryAsync(u => u.Id, ct);
+
+        var result = activities.Select(a =>
+        {
+            users.TryGetValue(a.UserId, out var u);
+            return new
+            {
+                id = $"act-{a.Id}",
+                userId = a.UserId,
+                displayName = u?.DisplayName ?? $"User #{a.UserId}",
+                email = u?.Email ?? "",
+                tier = u?.Tier.ToString() ?? "Free",
+                actionType = a.ActionType,
+                actionLabel = a.ActionLabel,
+                detail = a.Detail,
+                timestamp = a.CreatedAt.ToString("HH:mm:ss")
+            };
+        }).ToList();
+
+        return Ok(new
+        {
+            date = targetDate.ToString("yyyy-MM-dd"),
+            total = result.Count,
+            activities = result
+        });
+    }
+
+    /// <summary>
+    /// POST /admin/users/{id}/bonus-quota — Cộng thưởng Quota trực tiếp cho User
+    /// </summary>
+    [HttpPost("users/{id:int}/bonus-quota")]
+    public async Task<IActionResult> GrantBonusQuota(int id, [FromQuery] int amount = 5, CancellationToken ct = default)
+    {
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == id, ct);
+        if (user == null) return NotFound(new { code = "USER_NOT_FOUND" });
+
+        amount = Math.Max(1, amount);
+        user.RemainingQuota += amount;
+        user.DailyQuotaLimit += amount;
+        user.UpdatedAt = DateTime.UtcNow;
+
+        _db.UserActivities.Add(new UserActivity
+        {
+            UserId = id,
+            ActionType = "BONUS_QUOTA",
+            ActionLabel = $"Thưởng +{amount} Quota",
+            Detail = $"Admin đã cộng thưởng +{amount} lượt dùng cho tài khoản.",
+            CreatedAt = DateTime.UtcNow
+        });
+
+        await _db.SaveChangesAsync(ct);
+
+        return Ok(new
+        {
+            message = $"Đã cộng +{amount} lượt cho {user.DisplayName}.",
+            userId = id,
+            remainingQuota = user.RemainingQuota,
+            dailyQuotaLimit = user.DailyQuotaLimit
+        });
+    }
 }
 
 public class SimulatePaymentRequest

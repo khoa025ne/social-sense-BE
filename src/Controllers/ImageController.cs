@@ -15,11 +15,13 @@ public class ImageController : ControllerBase
 {
     private readonly IImageGenerationService _service;
     private readonly AppDbContext _db;
+    private readonly IActivityLogger _activityLogger;
 
-    public ImageController(IImageGenerationService service, AppDbContext db)
+    public ImageController(IImageGenerationService service, AppDbContext db, IActivityLogger activityLogger)
     {
         _service = service;
         _db = db;
+        _activityLogger = activityLogger;
     }
 
     /// <summary>
@@ -101,6 +103,8 @@ public class ImageController : ControllerBase
         }
         user.UpdatedAt = now;
         await _db.SaveChangesAsync(ct);
+
+        await _activityLogger.LogAsync(userId, "IMAGE_GEN", "Sinh ảnh AI minh họa", $"Prompt: '{request.DraftPrompt}'", ct);
 
         return Ok(result);
     }

@@ -20,17 +20,20 @@ public class PaymentController : ControllerBase
     private readonly IPayOsService _payOs;
     private readonly PayOsOptions _options;
     private readonly ILogger<PaymentController> _logger;
+    private readonly IActivityLogger _activityLogger;
 
     public PaymentController(
         AppDbContext db,
         IPayOsService payOs,
         IOptions<PayOsOptions> options,
-        ILogger<PaymentController> logger)
+        ILogger<PaymentController> logger,
+        IActivityLogger activityLogger)
     {
         _db = db;
         _payOs = payOs;
         _options = options.Value;
         _logger = logger;
+        _activityLogger = activityLogger;
     }
 
     // ── Bảng giá ─────────────────────────────────────────────────────────────

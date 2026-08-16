@@ -15,11 +15,13 @@ public class ContentController : ControllerBase
     private static readonly HashSet<string> AllowedLanguages = new(StringComparer.OrdinalIgnoreCase) { "vi", "en" };
     private readonly IContentGeneratorService _service;
     private readonly IContentHistoryService _historyService;
+    private readonly IActivityLogger _activityLogger;
 
-    public ContentController(IContentGeneratorService service, IContentHistoryService historyService)
+    public ContentController(IContentGeneratorService service, IContentHistoryService historyService, IActivityLogger activityLogger)
     {
         _service = service;
         _historyService = historyService;
+        _activityLogger = activityLogger;
     }
 
     [HttpPost("generate")]
@@ -58,6 +60,9 @@ public class ContentController : ControllerBase
         {
             return NotFound();
         }
+
+        var topicDetail = !string.IsNullOrWhiteSpace(request.UserInstruction) ? request.UserInstruction : "Bài viết sáng tạo AI Đa kênh";
+        await _activityLogger.LogAsync(userId, "CREATE_PROMPT", "Tạo bài viết AI Đa kênh", $"Nội dung: '{topicDetail}'", ct);
 
         return Ok(response);
     }

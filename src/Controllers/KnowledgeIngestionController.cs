@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Security.Claims;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Http;
@@ -14,11 +15,13 @@ namespace SocialSense.Controllers;
 public class KnowledgeIngestionController : ControllerBase
 {
     private readonly IKnowledgeIngestionService _service;
+    private readonly IActivityLogger _activityLogger;
     private const long MaxFileSizeBytes = 10 * 1024 * 1024; // 10MB
 
-    public KnowledgeIngestionController(IKnowledgeIngestionService service)
+    public KnowledgeIngestionController(IKnowledgeIngestionService service, IActivityLogger activityLogger)
     {
         _service = service;
+        _activityLogger = activityLogger;
     }
 
     [HttpPost("manual")]
@@ -110,6 +113,13 @@ public class KnowledgeIngestionController : ControllerBase
         {
             using var stream = file.OpenReadStream();
             var result = await _service.IngestFileAsync(file.FileName, stream, ct);
+
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (int.TryParse(userIdStr, out var userId))
+            {
+                await _activityLogger.LogAsync(userId, "UPLOAD_KNOWLEDGE", "Nạp Tri thức Thương hiệu", $"Đã nạp tệp tài liệu '{file.FileName}'", ct);
+            }
+
             return Ok(new
             {
                 message = "File uploaded and ingested successfully.",

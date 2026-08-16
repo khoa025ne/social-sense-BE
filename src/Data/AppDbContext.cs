@@ -43,6 +43,8 @@ public class AppDbContext : DbContext
 
     public DbSet<AnalyticsReport> AnalyticsReports => Set<AnalyticsReport>();
 
+    public DbSet<UserActivity> UserActivities => Set<UserActivity>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -177,6 +179,14 @@ public class AppDbContext : DbContext
             entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.HasIndex(x => x.UserId);
             entity.HasIndex(x => x.CreatedAt);
+        });
+
+        modelBuilder.Entity<UserActivity>(entity =>
+        {
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
+            entity.HasIndex(x => x.UserId);
+            entity.HasIndex(x => x.CreatedAt);
+            entity.HasIndex(x => x.ActionType);
         });
     }
 }

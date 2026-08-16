@@ -28,14 +28,16 @@ public class AuthController : ControllerBase
     private readonly IEmailService _emailService;
     private readonly SmtpOptions _smtpOptions;
     private readonly ILogger<AuthController> _logger;
+    private readonly IActivityLogger _activityLogger;
 
-    public AuthController(AppDbContext db, IOptions<JwtOptions> jwtOptions, IEmailService emailService, IOptions<SmtpOptions> smtpOptions, ILogger<AuthController> logger)
+    public AuthController(AppDbContext db, IOptions<JwtOptions> jwtOptions, IEmailService emailService, IOptions<SmtpOptions> smtpOptions, ILogger<AuthController> logger, IActivityLogger activityLogger)
     {
         _db = db;
         _jwtOptions = jwtOptions.Value;
         _emailService = emailService;
         _smtpOptions = smtpOptions.Value;
         _logger = logger;
+        _activityLogger = activityLogger;
     }
 
     [HttpPost("register")]
@@ -83,6 +85,9 @@ public class AuthController : ControllerBase
         _db.UserRoles.Add(new UserRole { UserId = user.Id, RoleId = userRole.Id });
         await _db.SaveChangesAsync(ct);
 
+        // Ghi nhật ký hành động Đăng ký
+        await _activityLogger.LogAsync(user.Id, "LOGIN", "Đăng ký tài khoản mới", $"Đã tạo tài khoản với email {user.Email}", ct);
+
         // Gửi email chào mừng — await trực tiếp để dễ debug, lỗi SMTP không fail request
         try
         {
@@ -121,6 +126,9 @@ public class AuthController : ControllerBase
 
         _db.UserTokens.Add(userToken);
         await _db.SaveChangesAsync(ct);
+
+        // Ghi nhật ký hành động Đăng nhập
+        await _activityLogger.LogAsync(user.Id, "LOGIN", "Đăng nhập hệ thống", $"Đã đăng nhập tài khoản ({user.Email})", ct);
 
         return Ok(new AuthResponse
         {
