@@ -38,8 +38,9 @@ public class AdminController : ControllerBase
     [HttpGet("dashboard")]
     public async Task<IActionResult> GetDashboard(CancellationToken ct)
     {
-        var now = DateTime.UtcNow;
-        var sevenDaysAgo = now.AddDays(-7);
+        var nowUtc = DateTime.UtcNow;
+        var nowVn = nowUtc.AddHours(7);
+        var eightDaysAgoUtc = nowUtc.AddDays(-8);
 
         var totalUsers = await _db.Users.CountAsync(ct);
         var activeUsers = await _db.Users.CountAsync(u => u.IsActive, ct);
@@ -51,26 +52,40 @@ public class AdminController : ControllerBase
         var activeKeys = keyStatuses.Count(k => !k.IsInCooldown);
         var coolingKeys = keyStatuses.Count(k => k.IsInCooldown);
 
-        // Thống kê 7 ngày gần nhất từ DB thật
+        // Thống kê 7 ngày gần nhất chuyển đổi sang Múi Giờ Việt Nam (UTC+7)
         var activitiesList = await _db.UserActivities
-            .Where(a => a.CreatedAt >= sevenDaysAgo)
-            .Select(a => new { Date = a.CreatedAt.Date, a.ActionType, a.ActionLabel, a.Detail })
+            .Where(a => a.CreatedAt >= eightDaysAgoUtc)
+            .Select(a => new { Date = a.CreatedAt.AddHours(7).Date, a.ActionType, a.ActionLabel, a.Detail })
             .ToListAsync(ct);
 
         var contentByDay = await _db.ContentHistories
-            .Where(c => c.CreatedAt >= sevenDaysAgo)
-            .GroupBy(c => c.CreatedAt.Date)
+            .Where(c => c.CreatedAt >= eightDaysAgoUtc)
+            .Select(c => new { Date = c.CreatedAt.AddHours(7).Date })
+            .GroupBy(c => c.Date)
             .Select(g => new { Date = g.Key, Count = g.Count() })
             .ToListAsync(ct);
 
         var usersByDay = await _db.Users
-            .Where(u => u.CreatedAt >= sevenDaysAgo)
-            .GroupBy(u => u.CreatedAt.Date)
+            .Where(u => u.CreatedAt >= eightDaysAgoUtc)
+            .Select(u => new { Date = u.CreatedAt.AddHours(7).Date })
+            .GroupBy(u => u.Date)
             .Select(g => new { Date = g.Key, Count = g.Count() })
             .ToListAsync(ct);
 
+        // Đơn hàng thanh toán thực sự từ PayOS
+        var paidOrdersList = await _db.PaymentOrders
+            .Where(p => p.Status == PaymentOrderStatus.Paid && (p.PaidAt >= eightDaysAgoUtc || p.UpdatedAt >= eightDaysAgoUtc))
+            .Select(p => new { Date = (p.PaidAt ?? p.UpdatedAt).AddHours(7).Date, p.TargetTier, p.Amount })
+            .ToListAsync(ct);
+
+        // Subscriptions kích hoạt
+        var activeSubsList = await _db.Subscriptions
+            .Where(s => s.CreatedAt >= eightDaysAgoUtc || s.StartedAt >= eightDaysAgoUtc)
+            .Select(s => new { Date = (s.StartedAt ?? s.CreatedAt).AddHours(7).Date, s.Tier, s.AmountPaid })
+            .ToListAsync(ct);
+
         var last7Days = Enumerable.Range(0, 7)
-            .Select(i => now.AddDays(-6 + i).Date)
+            .Select(i => nowVn.AddDays(-6 + i).Date)
             .Select(date =>
             {
                 var promptCount = activitiesList.Count(x => x.Date == date && x.ActionType == "CREATE_PROMPT")
@@ -79,10 +94,27 @@ public class AdminController : ControllerBase
                 var knowCount = activitiesList.Count(x => x.Date == date && x.ActionType == "UPLOAD_KNOWLEDGE");
                 var loginCount = activitiesList.Count(x => x.Date == date && x.ActionType == "LOGIN");
                 var newUsers = usersByDay.FirstOrDefault(x => x.Date == date)?.Count ?? 0;
-                var payCount = activitiesList.Count(x => x.Date == date && x.ActionType == "PAYMENT");
-                var proUpgrades = activitiesList.Count(x => x.Date == date && x.ActionType == "PAYMENT" && (x.Detail.Contains("Pro") || x.ActionLabel.Contains("Pro")));
-                var ultraUpgrades = activitiesList.Count(x => x.Date == date && x.ActionType == "PAYMENT" && (x.Detail.Contains("Ultra") || x.ActionLabel.Contains("Ultra")));
-                var rev = (long)proUpgrades * 79000 + (long)ultraUpgrades * 99000;
+
+                // Thống kê nâng cấp Pro / Ultra
+                var paidProFromOrders = paidOrdersList.Count(x => x.Date == date && x.TargetTier == UserTier.Pro)
+                    + activeSubsList.Count(x => x.Date == date && x.Tier == UserTier.Pro);
+                var paidUltraFromOrders = paidOrdersList.Count(x => x.Date == date && (x.TargetTier == UserTier.Enterprise))
+                    + activeSubsList.Count(x => x.Date == date && x.Tier == UserTier.Enterprise);
+
+                var actPro = activitiesList.Count(x => x.Date == date && x.ActionType == "PAYMENT" && (x.Detail.Contains("Pro") || x.ActionLabel.Contains("Pro")));
+                var actUltra = activitiesList.Count(x => x.Date == date && x.ActionType == "PAYMENT" && (x.Detail.Contains("Ultra") || x.Detail.Contains("Enterprise") || x.ActionLabel.Contains("Ultra") || x.ActionLabel.Contains("Enterprise")));
+
+                var proUpgrades = Math.Max(paidProFromOrders, actPro);
+                var ultraUpgrades = Math.Max(paidUltraFromOrders, actUltra);
+
+                var orderRev = paidOrdersList.Where(x => x.Date == date).Sum(x => (long)x.Amount)
+                    + activeSubsList.Where(x => x.Date == date).Sum(x => (long)x.AmountPaid);
+                var calcRev = (long)proUpgrades * 79000 + (long)ultraUpgrades * 99000;
+                var rev = Math.Max(orderRev, calcRev);
+
+                var payCount = Math.Max(
+                    paidOrdersList.Count(x => x.Date == date) + activeSubsList.Count(x => x.Date == date),
+                    activitiesList.Count(x => x.Date == date && x.ActionType == "PAYMENT"));
 
                 return new DailyStatPoint
                 {
@@ -897,31 +929,48 @@ public class AdminController : ControllerBase
     [HttpGet("activities/drilldown")]
     public async Task<IActionResult> GetActivityDrilldown([FromQuery] string? date = null, CancellationToken ct = default)
     {
-        DateTime targetDate = DateTime.UtcNow.Date;
+        DateTime vnTargetDate = DateTime.UtcNow.AddHours(7).Date;
         if (!string.IsNullOrWhiteSpace(date) && DateTime.TryParse(date, out var parsed))
         {
-            targetDate = parsed.Date;
+            vnTargetDate = parsed.Date;
         }
 
-        var nextDay = targetDate.AddDays(1);
+        // Chuyển đổi ngày target sang khoảng UTC tương ứng với Múi giờ Việt Nam (UTC+7)
+        var utcStart = vnTargetDate.AddHours(-7);
+        var utcEnd = vnTargetDate.AddDays(1).AddHours(-7);
 
         var activities = await _db.UserActivities
             .AsNoTracking()
-            .Where(a => a.CreatedAt >= targetDate && a.CreatedAt < nextDay)
+            .Where(a => a.CreatedAt >= utcStart && a.CreatedAt < utcEnd)
             .OrderByDescending(a => a.CreatedAt)
             .Take(100)
             .ToListAsync(ct);
 
-        var userIds = activities.Select(a => a.UserId).Distinct().ToList();
+        // Lấy danh sách các đơn hàng đã thanh toán trong ngày tương ứng
+        var paidOrders = await _db.PaymentOrders
+            .AsNoTracking()
+            .Where(p => p.Status == PaymentOrderStatus.Paid && ((p.PaidAt >= utcStart && p.PaidAt < utcEnd) || (p.UpdatedAt >= utcStart && p.UpdatedAt < utcEnd)))
+            .OrderByDescending(p => p.PaidAt ?? p.UpdatedAt)
+            .ToListAsync(ct);
+
+        var userIds = activities.Select(a => a.UserId)
+            .Concat(paidOrders.Select(p => p.UserId))
+            .Distinct()
+            .ToList();
+
         var users = await _db.Users
             .AsNoTracking()
             .Where(u => userIds.Contains(u.Id))
             .ToDictionaryAsync(u => u.Id, ct);
 
-        var result = activities.Select(a =>
+        var resultList = new List<object>();
+
+        // Thêm các nhật ký từ UserActivities
+        foreach (var a in activities)
         {
             users.TryGetValue(a.UserId, out var u);
-            return new
+            var vnTime = a.CreatedAt.AddHours(7);
+            resultList.Add(new
             {
                 id = $"act-{a.Id}",
                 userId = a.UserId,
@@ -931,15 +980,41 @@ public class AdminController : ControllerBase
                 actionType = a.ActionType,
                 actionLabel = a.ActionLabel,
                 detail = a.Detail,
-                timestamp = a.CreatedAt.ToString("HH:mm:ss")
-            };
-        }).ToList();
+                timestamp = vnTime.ToString("HH:mm:ss dd/MM/yyyy")
+            });
+        }
+
+        // Bổ sung các giao dịch PayOS từ PaymentOrders nếu chưa có trong UserActivities
+        foreach (var p in paidOrders)
+        {
+            var pTime = (p.PaidAt ?? p.UpdatedAt).AddHours(7);
+            var tierName = p.TargetTier == UserTier.Enterprise ? "Ultra" : p.TargetTier.ToString();
+            users.TryGetValue(p.UserId, out var u);
+
+            // Tránh trùng lặp nếu đã có trong UserActivities
+            bool existsInAct = activities.Any(a => a.UserId == p.UserId && a.ActionType == "PAYMENT" && Math.Abs((a.CreatedAt - (p.PaidAt ?? p.UpdatedAt)).TotalMinutes) < 5);
+            if (!existsInAct)
+            {
+                resultList.Add(new
+                {
+                    id = $"order-{p.Id}",
+                    userId = p.UserId,
+                    displayName = u?.DisplayName ?? $"User #{p.UserId}",
+                    email = u?.Email ?? "",
+                    tier = u?.Tier.ToString() ?? tierName,
+                    actionType = "PAYMENT",
+                    actionLabel = $"Nâng cấp Gói {tierName} ({p.Amount:N0}đ)",
+                    detail = $"Thanh toán thành công qua PayOS cho đơn hàng #{p.OrderCode}.",
+                    timestamp = pTime.ToString("HH:mm:ss dd/MM/yyyy")
+                });
+            }
+        }
 
         return Ok(new
         {
-            date = targetDate.ToString("yyyy-MM-dd"),
-            total = result.Count,
-            activities = result
+            date = vnTargetDate.ToString("yyyy-MM-dd"),
+            total = resultList.Count,
+            activities = resultList
         });
     }
 
