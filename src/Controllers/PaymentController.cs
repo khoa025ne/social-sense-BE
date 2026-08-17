@@ -469,21 +469,6 @@ public class PaymentController : ControllerBase
 
         await _db.SaveChangesAsync(ct);
 
-        try
-        {
-            var tierName = order.TargetTier == UserTier.Enterprise ? "Ultra" : order.TargetTier.ToString();
-            await _activityLogger.LogAsync(
-                order.UserId,
-                "PAYMENT",
-                $"Nâng cấp Gói {tierName} ({order.Amount:N0}đ)",
-                $"Thanh toán thành công qua PayOS cho đơn hàng #{order.OrderCode}.",
-                ct);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to log payment activity for user {UserId}", order.UserId);
-        }
-
         _logger.LogInformation(
             "✅ Payment confirmed: orderCode={OrderCode}, user={UserId}, tier={Tier}, amount={Amount}",
             orderCode, order.UserId, order.TargetTier, order.Amount);
@@ -521,6 +506,98 @@ public class PaymentController : ControllerBase
             Amount    = order.Amount,
             PaidAt    = order.PaidAt,
             CreatedAt = order.CreatedAt
+        });
+    }
+
+    /// <summary>
+    /// POST /payment/orders/{orderCode}/simulate-pay — Giả lập thanh toán thành công (Test / Dev / Local)
+    /// </summary>
+    [HttpPost("orders/{orderCode:long}/simulate-pay")]
+    [Authorize]
+    public async Task<IActionResult> SimulatePay(long orderCode, CancellationToken ct)
+    {
+        var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (!int.TryParse(userIdStr, out var userId))
+            return Unauthorized(new { code = "AUTH_INVALID_TOKEN" });
+
+        var order = await _db.PaymentOrders
+            .FirstOrDefaultAsync(o => o.OrderCode == orderCode && o.UserId == userId, ct);
+
+        if (order == null)
+            return NotFound(new { code = "ORDER_NOT_FOUND" });
+
+        var now = DateTime.UtcNow;
+
+        order.Status = PaymentOrderStatus.Paid;
+        order.PaidAt = now;
+        order.UpdatedAt = now;
+
+        var existingSub = await _db.Subscriptions
+            .FirstOrDefaultAsync(s => s.UserId == userId, ct);
+
+        if (existingSub != null)
+        {
+            var startFrom = existingSub.ExpiresAt.HasValue && existingSub.ExpiresAt > now
+                ? existingSub.ExpiresAt.Value
+                : now;
+
+            existingSub.Tier = order.TargetTier;
+            existingSub.Status = SubscriptionStatus.Active;
+            existingSub.StartedAt = now;
+            existingSub.ExpiresAt = startFrom.AddDays(30);
+            existingSub.AmountPaid = order.Amount;
+            existingSub.PaymentOrderCode = orderCode;
+            existingSub.UpdatedAt = now;
+        }
+        else
+        {
+            _db.Subscriptions.Add(new Subscription
+            {
+                UserId = userId,
+                Tier = order.TargetTier,
+                Status = SubscriptionStatus.Active,
+                StartedAt = now,
+                ExpiresAt = now.AddDays(30),
+                AmountPaid = order.Amount,
+                PaymentOrderCode = orderCode,
+                CreatedAt = now,
+                UpdatedAt = now
+            });
+        }
+
+        var user = await _db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
+        if (user != null)
+        {
+            user.Tier = order.TargetTier;
+            user.DailyQuotaLimit = Models.User.GetDefaultQuota(order.TargetTier);
+            user.RemainingQuota = user.DailyQuotaLimit;
+            user.LastQuotaReset = now;
+            user.UpdatedAt = now;
+        }
+
+        await _db.SaveChangesAsync(ct);
+
+        try
+        {
+            var tierName = order.TargetTier == UserTier.Enterprise ? "Ultra" : order.TargetTier.ToString();
+            await _activityLogger.LogAsync(
+                userId,
+                "PAYMENT",
+                $"Nâng cấp Gói {tierName} ({order.Amount:N0}đ)",
+                $"Thanh toán thành công qua PayOS cho đơn hàng #{order.OrderCode}.",
+                ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to log payment activity for user {UserId}", userId);
+        }
+
+        return Ok(new
+        {
+            message = "Thanh toán giả lập thành công! Gói cước của bạn đã được nâng cấp.",
+            status = "Paid",
+            orderCode = order.OrderCode,
+            tier = order.TargetTier.ToString()
         });
     }
 
