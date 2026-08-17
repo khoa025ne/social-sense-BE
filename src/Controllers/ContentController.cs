@@ -58,7 +58,11 @@ public class ContentController : ControllerBase
         var response = await _service.GenerateAsync(request, ct);
         if (response == null)
         {
-            return NotFound();
+            return StatusCode(503, new
+            {
+                code = "AI_SERVICE_UNAVAILABLE",
+                message = "Hệ thống AI chưa khởi tạo được bài viết. Vui lòng kiểm tra lại cấu hình API key trong Admin hoặc thử lại sau."
+            });
         }
 
         var topicDetail = !string.IsNullOrWhiteSpace(request.UserInstruction) ? request.UserInstruction : "Bài viết sáng tạo AI Đa kênh";
