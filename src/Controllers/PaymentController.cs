@@ -469,6 +469,21 @@ public class PaymentController : ControllerBase
 
         await _db.SaveChangesAsync(ct);
 
+        try
+        {
+            var tierName = order.TargetTier == UserTier.Enterprise ? "Ultra" : order.TargetTier.ToString();
+            await _activityLogger.LogAsync(
+                order.UserId,
+                "PAYMENT",
+                $"Nâng cấp Gói {tierName} ({order.Amount:N0}đ)",
+                $"Thanh toán thành công qua PayOS cho đơn hàng #{order.OrderCode}.",
+                ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to log payment activity for user {UserId}", order.UserId);
+        }
+
         _logger.LogInformation(
             "✅ Payment confirmed: orderCode={OrderCode}, user={UserId}, tier={Tier}, amount={Amount}",
             orderCode, order.UserId, order.TargetTier, order.Amount);

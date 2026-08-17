@@ -20,13 +20,20 @@ public class AdminController : ControllerBase
     private readonly AppDbContext _db;
     private readonly GeminiApiKeyPool _keyPool;
     private readonly ApiKeyEncryptionService _encryption;
+    private readonly IActivityLogger _activityLogger;
     private readonly ILogger<AdminController> _logger;
 
-    public AdminController(AppDbContext db, GeminiApiKeyPool keyPool, ApiKeyEncryptionService encryption, ILogger<AdminController> logger)
+    public AdminController(
+        AppDbContext db,
+        GeminiApiKeyPool keyPool,
+        ApiKeyEncryptionService encryption,
+        IActivityLogger activityLogger,
+        ILogger<AdminController> logger)
     {
         _db = db;
         _keyPool = keyPool;
         _encryption = encryption;
+        _activityLogger = activityLogger;
         _logger = logger;
     }
 
@@ -51,7 +58,7 @@ public class AdminController : ControllerBase
         var activeKeys = keyStatuses.Count(k => !k.IsInCooldown);
         var coolingKeys = keyStatuses.Count(k => k.IsInCooldown);
 
-        // Thống kê 7 ngày gần nhất từ DB thật
+        // Thống kê 7 ngày gần nhất từ DB thật (UserActivities + PaymentOrders + Subscriptions)
         var activitiesList = await _db.UserActivities
             .Where(a => a.CreatedAt >= sevenDaysAgo)
             .Select(a => new { Date = a.CreatedAt.Date, a.ActionType, a.ActionLabel, a.Detail })
@@ -69,6 +76,16 @@ public class AdminController : ControllerBase
             .Select(g => new { Date = g.Key, Count = g.Count() })
             .ToListAsync(ct);
 
+        var paidOrdersList = await _db.PaymentOrders
+            .Where(p => p.Status == PaymentOrderStatus.Paid && p.UpdatedAt >= sevenDaysAgo)
+            .Select(p => new { Date = (p.PaidAt ?? p.UpdatedAt).Date, p.TargetTier, p.Amount })
+            .ToListAsync(ct);
+
+        var activeSubsList = await _db.Subscriptions
+            .Where(s => s.CreatedAt >= sevenDaysAgo)
+            .Select(s => new { Date = s.CreatedAt.Date, s.Tier, s.AmountPaid })
+            .ToListAsync(ct);
+
         var last7Days = Enumerable.Range(0, 7)
             .Select(i => now.AddDays(-6 + i).Date)
             .Select(date =>
@@ -79,10 +96,25 @@ public class AdminController : ControllerBase
                 var knowCount = activitiesList.Count(x => x.Date == date && x.ActionType == "UPLOAD_KNOWLEDGE");
                 var loginCount = activitiesList.Count(x => x.Date == date && x.ActionType == "LOGIN");
                 var newUsers = usersByDay.FirstOrDefault(x => x.Date == date)?.Count ?? 0;
-                var payCount = activitiesList.Count(x => x.Date == date && x.ActionType == "PAYMENT");
-                var proUpgrades = activitiesList.Count(x => x.Date == date && x.ActionType == "PAYMENT" && (x.Detail.Contains("Pro") || x.ActionLabel.Contains("Pro")));
-                var ultraUpgrades = activitiesList.Count(x => x.Date == date && x.ActionType == "PAYMENT" && (x.Detail.Contains("Ultra") || x.ActionLabel.Contains("Ultra")));
-                var rev = (long)proUpgrades * 79000 + (long)ultraUpgrades * 99000;
+
+                // Tổng hợp lượt Pro & Ultra từ PaymentOrders, Subscriptions và UserActivities
+                var paidProFromOrders = paidOrdersList.Count(x => x.Date == date && x.TargetTier == UserTier.Pro)
+                    + activeSubsList.Count(x => x.Date == date && x.Tier == UserTier.Pro);
+                var paidUltraFromOrders = paidOrdersList.Count(x => x.Date == date && x.TargetTier == UserTier.Enterprise)
+                    + activeSubsList.Count(x => x.Date == date && x.Tier == UserTier.Enterprise);
+
+                var actPro = activitiesList.Count(x => x.Date == date && x.ActionType == "PAYMENT" && (x.Detail.Contains("Pro") || x.ActionLabel.Contains("Pro")));
+                var actUltra = activitiesList.Count(x => x.Date == date && x.ActionType == "PAYMENT" && (x.Detail.Contains("Ultra") || x.Detail.Contains("Enterprise") || x.ActionLabel.Contains("Ultra") || x.ActionLabel.Contains("Enterprise")));
+
+                var proUpgrades = Math.Max(paidProFromOrders, actPro);
+                var ultraUpgrades = Math.Max(paidUltraFromOrders, actUltra);
+
+                var orderRev = paidOrdersList.Where(x => x.Date == date).Sum(x => (long)x.Amount)
+                    + activeSubsList.Where(x => x.Date == date).Sum(x => (long)x.AmountPaid);
+                var calcRev = (long)proUpgrades * 79000 + (long)ultraUpgrades * 99000;
+                var rev = Math.Max(orderRev, calcRev);
+
+                var payCount = Math.Max(paidOrdersList.Count(x => x.Date == date) + activeSubsList.Count(x => x.Date == date), activitiesList.Count(x => x.Date == date && x.ActionType == "PAYMENT"));
 
                 return new DailyStatPoint
                 {
@@ -381,6 +413,22 @@ public class AdminController : ControllerBase
         user.UpdatedAt = DateTime.UtcNow;
 
         await _db.SaveChangesAsync(ct);
+
+        try
+        {
+            var tierDisplayName = tier == SocialSense.Models.UserTier.Enterprise ? "Ultra" : tier.ToString();
+            await _activityLogger.LogAsync(
+                id,
+                "PAYMENT",
+                $"Nâng cấp Gói {tierDisplayName} (Admin cấp)",
+                $"Admin đã chuyển đổi gói cước của tài khoản sang {tierDisplayName}.",
+                ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to log tier change activity for user {UserId}", id);
+        }
+
         _logger.LogInformation("Admin changed user {UserId} tier to {Tier}, quota={Quota}", id, tier, newQuota);
 
         return Ok(new
