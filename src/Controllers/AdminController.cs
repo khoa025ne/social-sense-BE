@@ -95,11 +95,14 @@ public class AdminController : ControllerBase
                 var loginCount = activitiesList.Count(x => x.Date == date && x.ActionType == "LOGIN");
                 var newUsers = usersByDay.FirstOrDefault(x => x.Date == date)?.Count ?? 0;
 
-                // Thống kê nâng cấp Pro / Ultra
-                var paidProFromOrders = paidOrdersList.Count(x => x.Date == date && x.TargetTier == UserTier.Pro)
-                    + activeSubsList.Count(x => x.Date == date && x.Tier == UserTier.Pro);
-                var paidUltraFromOrders = paidOrdersList.Count(x => x.Date == date && (x.TargetTier == UserTier.Enterprise))
-                    + activeSubsList.Count(x => x.Date == date && x.Tier == UserTier.Enterprise);
+                // Thống kê nâng cấp Pro / Ultra (Dùng PaymentOrders làm nguồn chuẩn, tránh cộng dồn nhân đôi với Subscriptions)
+                var paidProFromOrders = paidOrdersList.Any(x => x.Date == date)
+                    ? paidOrdersList.Count(x => x.Date == date && x.TargetTier == UserTier.Pro)
+                    : activeSubsList.Count(x => x.Date == date && x.Tier == UserTier.Pro);
+
+                var paidUltraFromOrders = paidOrdersList.Any(x => x.Date == date)
+                    ? paidOrdersList.Count(x => x.Date == date && x.TargetTier == UserTier.Enterprise)
+                    : activeSubsList.Count(x => x.Date == date && x.Tier == UserTier.Enterprise);
 
                 var actPro = activitiesList.Count(x => x.Date == date && x.ActionType == "PAYMENT" && (x.Detail.Contains("Pro") || x.ActionLabel.Contains("Pro")));
                 var actUltra = activitiesList.Count(x => x.Date == date && x.ActionType == "PAYMENT" && (x.Detail.Contains("Ultra") || x.Detail.Contains("Enterprise") || x.ActionLabel.Contains("Ultra") || x.ActionLabel.Contains("Enterprise")));
@@ -107,13 +110,16 @@ public class AdminController : ControllerBase
                 var proUpgrades = Math.Max(paidProFromOrders, actPro);
                 var ultraUpgrades = Math.Max(paidUltraFromOrders, actUltra);
 
-                var orderRev = paidOrdersList.Where(x => x.Date == date).Sum(x => (long)x.Amount)
-                    + activeSubsList.Where(x => x.Date == date).Sum(x => (long)x.AmountPaid);
+                var orderRev = paidOrdersList.Any(x => x.Date == date)
+                    ? paidOrdersList.Where(x => x.Date == date).Sum(x => (long)x.Amount)
+                    : activeSubsList.Where(x => x.Date == date).Sum(x => (long)x.AmountPaid);
                 var calcRev = (long)proUpgrades * 79000 + (long)ultraUpgrades * 99000;
                 var rev = Math.Max(orderRev, calcRev);
 
                 var payCount = Math.Max(
-                    paidOrdersList.Count(x => x.Date == date) + activeSubsList.Count(x => x.Date == date),
+                    paidOrdersList.Any(x => x.Date == date)
+                        ? paidOrdersList.Count(x => x.Date == date)
+                        : activeSubsList.Count(x => x.Date == date),
                     activitiesList.Count(x => x.Date == date && x.ActionType == "PAYMENT"));
 
                 return new DailyStatPoint
